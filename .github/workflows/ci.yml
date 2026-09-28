@@ -28,6 +28,7 @@ jobs:
       - name: Verify release metadata and logo provenance
         run: make metadata
       - name: Unit and native regression tests
+        timeout-minutes: 15
         run: make test-ci
       - name: Content-stripping and local IPC smoke checks
         run: make smoke
