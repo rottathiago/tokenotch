@@ -80,6 +80,16 @@ untrusted contributions. A skipped or unreachable external URL is not verified.
 Native CI still runs its complete checks; a documentation-only contributor need
 not claim to have run those locally.
 
+For native UI timing regressions, run
+`xcrun swift test --filter 'NotchWaitTests|HistoryPresentationTests|testIdleAutoHideAndHoverExpansion'`.
+CI repeats these fixtures three times after the full suite. With matching Command
+Line Tools and a GUI session, `make smoke-notch NOTCH_SMOKE_ARGS=--ui-timing` runs
+the same wait, history-rendering and auto-hide checks without XCTest. Fixture waits
+use bounded elapsed-time deadlines and report the expected state on failure;
+auto-hide timing uses the fleet's injected clock while still exercising its real
+pointer timer. Do not replace state checks with fixed sleeps or retry failed tests
+until they pass.
+
 Both workflows use read-only repository permissions and cancel superseded runs
 for the same branch or PR. Required checks have no path filters: documentation-only
 PRs still receive both check results. Native CI builds development installers
