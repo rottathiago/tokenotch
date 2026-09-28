@@ -16,9 +16,9 @@ attention, without saving your prompts or code.
 Tokenotch is an independent project and is not affiliated with or endorsed by
 GitHub or Microsoft.
 
-**Source-first release preparation:** the current milestone is public source
-and development CI, not a stable application release. Universal development
-builds are available from source. Production installers remain blocked until
+**Public source, pre-production app:** source and development CI are available
+in this repository, but there is no stable application release yet. Universal
+development builds are available from source. Production installers remain blocked until
 signing, notarization and real-client/hardware acceptance are approved. An ad-hoc
 development build is not a notarized production release.
 

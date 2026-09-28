@@ -9,16 +9,15 @@ security reports and conduct complaints require separate private routes.
 There is no accepted public 1.0.0 release yet. A configured workflow, passing
 tests or development build is not a security certification.
 
-The intended security channel is
+Use
 [GitHub private vulnerability reporting](https://github.com/rottathiago/tokenotch/security/advisories/new).
-It must not be treated as available until the maintainer enables and verifies it.
-GitHub offers this feature for public repositories: enable it at public cutover,
-verify the report form and maintainer notifications, and complete that check
-before announcing the repository or publishing installers.
+It is enabled for this public repository. Sign in to GitHub to submit a private
+report; it is shared with the repository maintainer rather than posted as a
+public issue.
 
 If the route is unavailable, do not post sensitive details publicly. The
-maintainer must establish a verified interim private security route if needed;
-publication remains blocked while no actionable private route exists.
+maintainer must restore private reporting or establish a verified interim
+private security route before further release announcements.
 Conduct reporting is not handled through security advisories.
 
 ## What to include privately

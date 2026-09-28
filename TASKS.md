@@ -1,8 +1,8 @@
 # Tokenotch release readiness
 
 Tokenotch is preparing its independent Copilot-only macOS 1.0.0 release.
-The current milestone is public source and development CI only; production
-installers and in-app installation are not part of this milestone.
+Public source and development CI are available. Production installers and
+in-app installation remain a separate milestone.
 This is a readiness record, not certification that public-release gates passed.
 The [feature reference](docs/features.md) describes implemented behavior and the
 [compatibility matrix](docs/compatibility.md) distinguishes targets from acceptance.
@@ -20,7 +20,7 @@ local clients require real acceptance; VS Code Local lifecycle hooks and Agent
 Host numeric usage are separate capabilities, not a claim of complete parity.
 Synthetic fixtures and successful cross-builds do not establish support.
 
-## Required before public source publication
+## Source-publication safeguards
 
 - Review the prospective source tree and the preserved commit history for
   accidental secrets, private material, obsolete artifacts and attribution.
@@ -32,6 +32,12 @@ Synthetic fixtures and successful cross-builds do not establish support.
 - Verify branch/tag protections, native/documentation checks, contributor review
   and an explicit auditable process for owner-authored changes.
 - Keep install/support/release links honest about what is actually available.
+
+The public repository now enforces separate required-CI and code-owner-review
+rulesets, owner-only version-tag creation and immutable version tags. The owner
+can bypass review for an owner-authored PR, not the required CI checks. Private
+vulnerability reporting is enabled. These safeguards do not certify a stable
+binary release.
 
 ## Nonblocking follow-up
 
