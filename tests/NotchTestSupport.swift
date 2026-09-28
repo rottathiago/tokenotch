@@ -19,12 +19,65 @@ enum NotchChecks {
         if !condition() { throw NotchCheckFailure.failed(message) }
     }
 
-    static func waitUntil(_ condition: () -> Bool) throws {
-        for _ in 0..<200 {
-            if condition() { return }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+    static func waitUntil(_ message: String = "Native fixture state did not settle",
+                          timeout: TimeInterval = 5, diagnostics: () -> String = { "" },
+                          file: StaticString = #fileID, line: UInt = #line,
+                          _ condition: () -> Bool) throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while !condition() {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else {
+                throw NotchCheckFailure.failed("\(message) after \(timeout)s at \(file):\(line). \(diagnostics())")
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(min(0.01, remaining)))
         }
-        throw NotchCheckFailure.failed("Native fixture state did not settle")
+    }
+
+    static func drainMainQueue() throws {
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        try waitUntil("Queued fixture updates did not finish") { drained }
+    }
+
+    static func waits() throws {
+        var evaluations = 0
+        var diagnosticReads = 0
+        try waitUntil("Already ready", timeout: 0, diagnostics: {
+            diagnosticReads += 1
+            return "Unexpected diagnostics"
+        }) {
+            evaluations += 1
+            return true
+        }
+        try require(evaluations == 1 && diagnosticReads == 0, "Ready fixtures return without pumping or reading diagnostics")
+
+        var timerFired = false
+        let timer = Timer(timeInterval: 0.02, repeats: false) { _ in timerFired = true }
+        RunLoop.main.add(timer, forMode: .default)
+        defer { timer.invalidate() }
+        try waitUntil("The wait must service native timers", timeout: 1) { timerFired }
+
+        var queued = false
+        DispatchQueue.main.async { queued = true }
+        try drainMainQueue()
+        try require(queued, "Draining must finish previously queued main-thread updates")
+
+        let timeout: TimeInterval = 0.04
+        let start = ProcessInfo.processInfo.systemUptime
+        var failure: String?
+        do {
+            try waitUntil("Expected fixture timeout", timeout: timeout, diagnostics: {
+                diagnosticReads += 1
+                return "ready=false"
+            }) { false }
+        } catch NotchCheckFailure.failed(let message) {
+            failure = message
+        }
+        try require(ProcessInfo.processInfo.systemUptime - start >= timeout, "Waits must honor elapsed time, not iteration counts")
+        try require(failure?.contains("Expected fixture timeout") == true
+                    && failure?.contains("ready=false") == true
+                    && failure?.contains("NotchTestSupport.swift:") == true
+                    && diagnosticReads == 1, "Timeouts must fail with the condition, observed state and call site")
     }
 
     static func click(_ panel: NSWindow, at point: CGPoint) throws {
@@ -1033,7 +1086,10 @@ enum NotchChecks {
         try require(NotchPresentation(model: model).savedUsage == nil, "Opt-out must not invent saved usage")
         history.start(available: false)
         defer { history.stop() }
-        try waitUntil { !history.notchLoading }
+        func historyState() -> String {
+            "loading=\(history.notchLoading), range=\(history.notchRange), error=\(history.error ?? "none")"
+        }
+        try waitUntil("Initial saved history did not load", diagnostics: historyState) { !history.notchLoading }
         let view = UsageHistoryView(history: history)
         let bitmap = try hostedImage(view, size: CGSize(width: 820, height: 1050))
         try require(bitmap.pixelsWide > 0 && bitmap.pixelsHigh > 0, "History view renders")
@@ -1069,7 +1125,7 @@ enum NotchChecks {
         let fleet = NotchFleet(model: model, openSettings: { settingsOpened = true })
         fleet.start()
         defer { fleet.stop() }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        try drainMainQueue()
         fleet.reveal()
         guard let host = NSApplication.shared.windows.lazy.compactMap({
             $0.isVisible ? $0.contentView as? ShapeHostingView<CopilotSummaryView> : nil
@@ -1092,7 +1148,7 @@ enum NotchChecks {
         try require((card?.frame.height ?? 0) > (compactHeight ?? 0),
                     "Expansion must remeasure the native panel")
         history.objectWillChange.send()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        try drainMainQueue()
         try require(card?.isVisible == true && host.rootView.presentation.modelsExpanded,
                     "Published refresh must preserve the expanded card")
         host.rootView.toggleModels()
@@ -1101,7 +1157,10 @@ enum NotchChecks {
                     "Compact panel height changed: \(String(describing: compactHeight)) -> \(String(describing: card?.frame.height))")
         host.rootView.toggleModels()
         host.rootView.selectRange(.week)
-        try waitUntil {
+        func cardState() -> String {
+            "\(historyState()), cardRange=\(host.rootView.presentation.range), source=\(host.rootView.presentation.usageSource)"
+        }
+        try waitUntil("The card did not receive seven-day saved history", diagnostics: cardState) {
             !history.notchLoading && host.rootView.presentation.range == .week
                 && host.rootView.presentation.usageSource == .saved
         }
@@ -1110,7 +1169,7 @@ enum NotchChecks {
         host.rootView.selectRange(.week)
         try require(host.rootView.presentation.modelsExpanded, "Reselecting the same period must not reset disclosure")
         history.selectNotchRange(.today)
-        try waitUntil {
+        try waitUntil("The card did not receive today's saved history", diagnostics: cardState) {
             !history.notchLoading && host.rootView.presentation.range == .today
                 && host.rootView.presentation.usageSource == .saved
         }
@@ -1122,7 +1181,7 @@ enum NotchChecks {
                     "History shortcut must preserve selected range and clear filters")
         try require(card?.isVisible != true, "History shortcut left notch card pinned open")
         history.selectNotchRange(.week)
-        try waitUntil { !history.notchLoading }
+        try waitUntil("Seven-day saved history did not reload", diagnostics: historyState) { !history.notchLoading }
         try require(history.notchUsage?.totals.calls == 11, "Seven-day models must exclude older archive days")
         fleet.reveal()
         guard let modelHost = NSApplication.shared.windows.lazy.compactMap({
@@ -1286,7 +1345,12 @@ enum NotchChecks {
         model.options.foldsForFullScreen = false
         let away = CGPoint(x: screen.frame.minX + 2, y: screen.frame.minY + 2)
         var pointer = away
-        let fleet = NotchFleet(model: model, openSettings: {}, pointerLocation: { pointer })
+        var date = now
+        var pointerReads = 0
+        let fleet = NotchFleet(model: model, openSettings: {}, pointerLocation: {
+            pointerReads += 1
+            return pointer
+        }, now: { date })
         let before = Set(application.windows.map(ObjectIdentifier.init))
         func windows() -> [NotchPanel] {
             application.windows.compactMap { window in
@@ -1294,8 +1358,16 @@ enum NotchChecks {
                 return window as? NotchPanel
             }
         }
-        func settle(_ duration: TimeInterval = 0.5) {
-            RunLoop.main.run(until: Date().addingTimeInterval(duration))
+        func state() -> String {
+            "edge=\(model.options.edge), pointer=\(pointer), reads=\(pointerReads), windows="
+                + windows().map {
+                    "\($0.frame): ignoresMouseEvents=\($0.ignoresMouseEvents)"
+                }.joined(separator: "; ")
+        }
+        func nextPointerTick(advancingBy duration: TimeInterval = 0) throws {
+            date = date.addingTimeInterval(duration)
+            let previousReads = pointerReads
+            try waitUntil("The notch pointer timer did not run", diagnostics: state) { pointerReads > previousReads }
         }
         func badge() throws -> (NotchPanel, ShapeHitTesting) {
             guard let panel = windows().first(where: { !($0.contentView is ShapeHostingView<CopilotSummaryView>) }),
@@ -1310,10 +1382,11 @@ enum NotchChecks {
         }
         fleet.start()
         defer { fleet.stop() }
+        try drainMainQueue()
         for edge in NotchEdge.allCases {
             pointer = away
             model.options.edge = edge.rawValue
-            settle()
+            try drainMainQueue()
             let (panel, host) = try badge()
             let center = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
             let pill = NotchLayout.badgeRect(in: CGRect(origin: .zero, size: panel.frame.size),
@@ -1322,30 +1395,34 @@ enum NotchChecks {
             try require(!host.contains(screenPoint: center), "Idle \(edge) must collapse instead of keeping the ring visible")
             try require(host.contains(screenPoint: indicator), "Idle \(edge) indicator remains hoverable")
             pointer = center
-            settle()
+            try nextPointerTick(advancingBy: 1)
             try require(windows().count == 1 && panel.ignoresMouseEvents,
                         "Transparent space around the collapsed notch must neither reveal nor capture clicks")
             pointer = indicator
-            settle()
-            try require(windows().count == 2 && host.contains(screenPoint: center) && !panel.ignoresMouseEvents,
-                        "Hovering the \(edge) indicator expands the ring and detail card")
+            try nextPointerTick()
+            date = date.addingTimeInterval(0.2)
+            try waitUntil("Hovering the \(edge) indicator must expand the ring and detail card", diagnostics: state) {
+                windows().count == 2 && host.contains(screenPoint: center) && !panel.ignoresMouseEvents
+            }
             guard let card = windows().first(where: { $0 !== panel }),
                   let cardHost = card.contentView as? ShapeHostingView<CopilotSummaryView> else {
                 throw NotchCheckFailure.failed("Hover did not reveal a detail card")
             }
             let placement = cardHost.rootView.placement
             pointer = CGPoint(x: placement.hoverBridge.midX, y: placement.hoverBridge.midY)
-            settle()
+            try nextPointerTick(advancingBy: 1)
             try require(windows().count == 2, "Crossing the notch/card gap must not collapse the notch")
             pointer = CGPoint(x: card.frame.midX, y: card.frame.midY)
-            settle()
+            try nextPointerTick(advancingBy: 1)
             try require(windows().count == 2, "Interacting with the detail card keeps the notch expanded")
             pointer = away
-            settle(0.7)
-            try require(windows().count == 1 && !host.contains(screenPoint: center) && panel.ignoresMouseEvents,
-                        "Leaving the \(edge) notch and card returns to the edge indicator")
+            try nextPointerTick()
+            date = date.addingTimeInterval(0.3)
+            try waitUntil("Leaving the \(edge) notch and card must restore the edge indicator", diagnostics: state) {
+                windows().count == 1 && !host.contains(screenPoint: center) && panel.ignoresMouseEvents
+            }
             panel.onClick?(.zero)
-            settle()
+            try nextPointerTick(advancingBy: 1)
             try require(windows().count == 2 && host.contains(screenPoint: center), "A click pins the expanded notch")
             fleet.handlePointerEvent(click)
             try require(windows().count == 1 && !host.contains(screenPoint: center), "An outside click unpins and collapses")
@@ -1354,43 +1431,58 @@ enum NotchChecks {
             fleet.handlePointerEvent(click)
             try require(host.contains(screenPoint: center), "Outside pointer events must not collapse an active drag")
             NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification, object: nil)
-            settle()
-            try require(panel.isVisible && host.contains(screenPoint: center),
+            try drainMainQueue()
+            let readsDuringDrag = pointerReads
+            let observationEnd = ProcessInfo.processInfo.systemUptime + 0.3
+            // Give real timer and activation callbacks a chance to disturb the active drag.
+            try waitUntil("Drag observation did not finish", diagnostics: state) {
+                ProcessInfo.processInfo.systemUptime >= observationEnd
+            }
+            try require(pointerReads == readsDuringDrag && panel.isVisible && host.contains(screenPoint: center),
                         "Pointer polling and app activation must not replace or collapse a dragged notch")
             panel.onDragEnd?()
-            settle()
+            try drainMainQueue()
             let (restoredPanel, restoredHost) = try badge()
             try require(!restoredHost.contains(screenPoint: CGPoint(x: restoredPanel.frame.midX, y: restoredPanel.frame.midY)),
                         "Ending a drag away from the notch restores the compact indicator")
         }
         model.options.autoHideNotch = false
-        settle()
+        try drainMainQueue()
         let (expanded, expandedHost) = try badge()
         try require(expandedHost.contains(screenPoint: CGPoint(x: expanded.frame.midX, y: expanded.frame.midY)),
                     "Disabling auto-hide keeps the ring visible at rest")
         model.options.autoHideNotch = true
-        settle()
+        try drainMainQueue()
         let (collapsed, collapsedHost) = try badge()
         let center = CGPoint(x: collapsed.frame.midX, y: collapsed.frame.midY)
         try require(!collapsedHost.contains(screenPoint: center), "Enabling auto-hide collapses immediately")
         fleet.reveal(allowSettings: false)
         try require(windows().count == 2 && collapsedHost.contains(screenPoint: center), "Notifications can temporarily expand")
-        settle(2.5)
+        try nextPointerTick(advancingBy: 2.9)
         try require(windows().count == 2, "Notification reveal respects its minimum duration")
-        settle(1)
-        try waitUntil { windows().count == 1 && !collapsedHost.contains(screenPoint: center) }
-        try require(windows().count == 1 && !collapsedHost.contains(screenPoint: center), "Notification reveal returns to a pill")
+        try nextPointerTick(advancingBy: 0.2)
+        date = date.addingTimeInterval(0.3)
+        try waitUntil("Notification reveal must return to a pill", diagnostics: state) {
+            windows().count == 1 && !collapsedHost.contains(screenPoint: center)
+        }
         model.options.allDisplays = true
         model.options.edge = "right"
-        settle()
+        try drainMainQueue()
         let notches = windows()
         try require(notches.count == NSScreen.screens.count, "Every display has an idle indicator")
         for notch in notches {
             let pill = NotchLayout.badgeRect(in: CGRect(origin: .zero, size: notch.frame.size),
                                             edge: .right, scale: 1, collapsed: true)
             pointer = CGPoint(x: notch.frame.minX + pill.midX, y: notch.frame.maxY - pill.midY)
-            settle()
-            try require(windows().count == notches.count + 1, "Moving between displays keeps exactly one detail card")
+            try nextPointerTick()
+            date = date.addingTimeInterval(0.2)
+            try waitUntil("Moving between displays must expand only the hovered display", diagnostics: state) {
+                windows().count == notches.count + 1 && notches.allSatisfy { candidate in
+                    guard let host = candidate.contentView as? ShapeHitTesting else { return false }
+                    let center = CGPoint(x: candidate.frame.midX, y: candidate.frame.midY)
+                    return host.contains(screenPoint: center) == (candidate === notch)
+                }
+            }
             for candidate in notches {
                 guard let host = candidate.contentView as? ShapeHitTesting else {
                     throw NotchCheckFailure.failed("Display indicator has no shape hit test")
@@ -1400,9 +1492,11 @@ enum NotchChecks {
             }
         }
         pointer = away
-        settle(0.7)
+        try nextPointerTick()
+        date = date.addingTimeInterval(0.3)
+        try waitUntil("Leaving all displays must close the detail card", diagnostics: state) { windows().count == notches.count }
         model.options.showNotch = false
-        settle()
+        try drainMainQueue()
         try require(windows().isEmpty, "The master hide setting removes even the compact indicator")
     }
 
