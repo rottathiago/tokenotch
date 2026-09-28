@@ -1,0 +1,79 @@
+import SwiftUI
+
+/// Copilot contours retain the original MIT attribution in LICENSE.
+struct CopilotGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        for loop in Self.outline {
+            path.move(to: CGPoint(x: loop[0].0, y: loop[0].1))
+            for point in loop.dropFirst() {
+                path.addLine(to: CGPoint(x: point.0, y: point.1))
+            }
+            path.closeSubpath()
+        }
+        return path.applying(CGAffineTransform(scaleX: rect.width, y: rect.height))
+            .applying(CGAffineTransform(translationX: rect.minX, y: rect.minY))
+    }
+
+    private static let head: [(CGFloat, CGFloat)] = [
+        (0.16, 0.47), (0.14031, 0.44187), (0.12625, 0.40437), (0.11781, 0.36031),
+        (0.115, 0.3125), (0.11781, 0.26375), (0.12625, 0.21688), (0.14031, 0.17469),
+        (0.16, 0.14), (0.18355, 0.11328), (0.21531, 0.09313), (0.25316, 0.07953),
+        (0.295, 0.0725), (0.33871, 0.07203), (0.38219, 0.07812), (0.42332, 0.09078),
+        (0.46, 0.11), (0.46705, 0.11793), (0.47328, 0.12656), (0.47881, 0.13566),
+        (0.48375, 0.145), (0.48822, 0.15434), (0.49234, 0.16344), (0.49623, 0.17207),
+        (0.5, 0.18)
+    ]
+    private static let jaw: [(CGFloat, CGFloat)] = [
+        (0.84, 0.78), (0.81596, 0.82506), (0.78266, 0.86297), (0.74209, 0.89408),
+        (0.69625, 0.91875), (0.64713, 0.93732), (0.59672, 0.95016),
+        (0.54701, 0.95760), (0.5, 0.96)
+    ]
+    private static let lens: [(CGFloat, CGFloat)] = [
+        (0.2, 0.17), (0.22420, 0.15398), (0.25109, 0.14313), (0.27963, 0.13695),
+        (0.30875, 0.135), (0.33740, 0.13680), (0.36453, 0.14188), (0.38908, 0.14977),
+        (0.41, 0.16), (0.42355, 0.17477), (0.43406, 0.19562), (0.44129, 0.22117),
+        (0.445, 0.25), (0.44496, 0.28070), (0.44094, 0.31188), (0.43270, 0.34211),
+        (0.42, 0.37), (0.39865, 0.38355), (0.37297, 0.39406), (0.34424, 0.40129),
+        (0.31375, 0.405), (0.28279, 0.40496), (0.25266, 0.40094), (0.22463, 0.39270),
+        (0.2, 0.38), (0.18688, 0.35867), (0.1775, 0.33313), (0.17188, 0.30477),
+        (0.17, 0.275), (0.17188, 0.24523), (0.1775, 0.21688), (0.18688, 0.19133)
+    ]
+    private static let faceTop: [(CGFloat, CGFloat)] = [
+        (0.25, 0.49), (0.28371, 0.50221), (0.31719, 0.50891), (0.35020, 0.51021),
+        (0.3825, 0.50625), (0.41387, 0.49713), (0.44406, 0.48297),
+        (0.47285, 0.46389), (0.5, 0.44)
+    ]
+    private static let faceBottom: [(CGFloat, CGFloat)] = [
+        (0.75, 0.76), (0.72572, 0.78439), (0.69828, 0.80516), (0.66826, 0.82240),
+        (0.63625, 0.83625), (0.60283, 0.84682), (0.56859, 0.85422),
+        (0.53412, 0.85857), (0.5, 0.86)
+    ]
+    private static let ear: [(CGFloat, CGFloat)] = [
+        (0.07, 0.46), (0.11, 0.46), (0.11, 0.78), (0.07, 0.78),
+        (0.05472, 0.77818), (0.04242, 0.77297), (0.03282, 0.76471), (0.02563, 0.75375),
+        (0.02054, 0.74045), (0.01727, 0.72516), (0.01552, 0.70822), (0.015, 0.69),
+        (0.015, 0.55), (0.01552, 0.53178), (0.01727, 0.51484), (0.02054, 0.49955),
+        (0.02563, 0.48625), (0.03282, 0.47529), (0.04242, 0.46703), (0.05472, 0.46182)
+    ]
+    private static func mirror(_ points: [(CGFloat, CGFloat)]) -> [(CGFloat, CGFloat)] {
+        points.map { (1 - $0.0, $0.1) }
+    }
+    private static func symmetric(_ half: [(CGFloat, CGFloat)]) -> [(CGFloat, CGFloat)] {
+        half + mirror(Array(half.dropLast().reversed()))
+    }
+    private static func eye(x: CGFloat) -> [(CGFloat, CGFloat)] {
+        (0...16).map { index in
+            let angle = CGFloat(index) * .pi / 16
+            return (x + cos(angle) * 0.0325, 0.7075 + sin(angle) * 0.0325)
+        } + (0...16).map { index in
+            let angle = CGFloat(index) * .pi / 16 + .pi
+            return (x + cos(angle) * 0.0325, 0.6325 + sin(angle) * 0.0325)
+        }
+    }
+    private static let outline = [
+        symmetric(head) + symmetric(jaw), lens, mirror(lens),
+        symmetric(faceTop) + symmetric(faceBottom), eye(x: 0.37), eye(x: 0.63),
+        ear, mirror(ear)
+    ]
+}

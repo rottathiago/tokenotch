@@ -1,0 +1,43 @@
+name: Documentation checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      external_links:
+        description: Check reviewed default-branch HTTPS links (advisory)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: scripts/docs/package-lock.json
+      - name: Install locked documentation tools
+        run: npm ci --prefix scripts/docs --ignore-scripts --no-audit --no-fund
+      - name: Install pinned lychee and check local links
+        uses: lycheeverse/lychee-action@649b0e4890508ea3e11ea6b3ee35ce899a25afd5
+        with:
+          lycheeVersion: v0.24.2
+          args: --offline --hidden --config lychee.toml './**/*.md'
+          token: ""
+          output: ${{ runner.temp }}/tokenotch-local-links.md
+      - name: Check Markdown, local links and checker regressions
+        run: make docs-check
+      - name: Check external links (advisory)
+        if: github.event_name == 'workflow_dispatch' && inputs.external_links && github.ref_name == github.event.repository.default_branch
+        continue-on-error: true
+        run: make docs-links-external

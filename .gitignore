@@ -7,5 +7,10 @@ DerivedData/
 xcuserdata/
 *.xcuserstate
 .swiftpm/
+.build/
 .agents/
 .forgeguard/
+integrations/VSCode/node_modules/
+integrations/VSCode/*.vsix
+scripts/__pycache__/
+scripts/docs/node_modules/

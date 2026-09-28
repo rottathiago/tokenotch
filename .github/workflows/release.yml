@@ -1,0 +1,96 @@
+name: Prepare signed Tokenotch release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Protected version tag to package
+        required: true
+        default: v1.0.0
+permissions:
+  contents: read
+concurrency:
+  group: tokenotch-release
+  cancel-in-progress: false
+jobs:
+  package:
+    if: github.repository == 'rottathiago/tokenotch'
+    runs-on: macos-15
+    environment: release
+    permissions:
+      contents: write
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: integrations/VSCode/package-lock.json
+      - name: Validate tag and protected acceptance record
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          ACCEPTANCE: ${{ vars.TOKENOTCH_RELEASE_ACCEPTANCE }}
+        run: |
+          test "$RELEASE_TAG" = "v$(python3 scripts/release-config.py --field version)"
+          test "$(git describe --tags --exact-match)" = "$RELEASE_TAG"
+          test -s "docs/releases/${RELEASE_TAG#v}.md"
+          printf '%s' "$ACCEPTANCE" > "$RUNNER_TEMP/tokenotch-acceptance.json"
+          chmod 600 "$RUNNER_TEMP/tokenotch-acceptance.json"
+      - name: Sign and notarize
+        env:
+          CERTIFICATE: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          INSTALLER_CERTIFICATE: ${{ secrets.DEVELOPER_ID_INSTALLER_P12_BASE64 }}
+          INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_INSTALLER_P12_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.NOTARY_API_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER_ID }}
+          TOKENOTCH_SIGNING_IDENTITY: ${{ vars.TOKENOTCH_SIGNING_IDENTITY }}
+          TOKENOTCH_INSTALLER_IDENTITY: ${{ vars.TOKENOTCH_INSTALLER_IDENTITY }}
+          TOKENOTCH_TEAM_ID: ${{ vars.TOKENOTCH_TEAM_ID }}
+          TOKENOTCH_NOTARY_PROFILE: TokenotchRelease
+        run: |
+          set -euo pipefail
+          umask 077
+          KEYCHAIN="$RUNNER_TEMP/tokenotch-signing.keychain-db"
+          PASSWORD="$(openssl rand -hex 32)"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/tokenotch-certificate.p12"
+          printf '%s' "$INSTALLER_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/tokenotch-installer-certificate.p12"
+          printf '%s' "$NOTARY_KEY" | base64 --decode > "$RUNNER_TEMP/tokenotch-notary.p8"
+          security create-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/tokenotch-certificate.p12" -k "$KEYCHAIN" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security import "$RUNNER_TEMP/tokenotch-installer-certificate.p12" -k "$KEYCHAIN" -P "$INSTALLER_CERTIFICATE_PASSWORD" -T /usr/bin/productbuild
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" "$HOME/Library/Keychains/login.keychain-db"
+          xcrun notarytool store-credentials "$TOKENOTCH_NOTARY_PROFILE" --keychain "$KEYCHAIN" --key "$RUNNER_TEMP/tokenotch-notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER"
+          export TOKENOTCH_SIGNING_KEYCHAIN="$KEYCHAIN"
+          export TOKENOTCH_RELEASE_EVIDENCE="$RUNNER_TEMP/tokenotch-acceptance.json"
+          make release
+      - name: Remove ephemeral signing material
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/tokenotch-signing.keychain-db"; then
+            security delete-keychain "$RUNNER_TEMP/tokenotch-signing.keychain-db"
+          fi
+          rm -f "$RUNNER_TEMP/tokenotch-certificate.p12" "$RUNNER_TEMP/tokenotch-installer-certificate.p12" "$RUNNER_TEMP/tokenotch-notary.p8" "$RUNNER_TEMP/tokenotch-acceptance.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed-tokenotch
+          path: build/releases/
+          if-no-files-found: error
+      - name: Create draft only
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          REPOSITORY="$(python3 scripts/release-config.py --field repository)"
+          gh release create "$RELEASE_TAG" --repo "$REPOSITORY" --verify-tag --draft \
+            --title "Tokenotch $RELEASE_TAG" --notes-file "docs/releases/${RELEASE_TAG#v}.md" \
+            build/releases/*.dmg build/releases/*.pkg build/releases/*.sha256 build/releases/*-inventory.json

@@ -1,39 +1,49 @@
-name: CI
-
+name: Tokenotch checks
 on:
   push:
-    branches: [main]
   pull_request:
-
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
-    if: github.repository == 'vinzdg/codenotch'
-    name: Unit tests
-    # macOS 26, because that is what the app targets. An older image ships an
-    # Xcode that cannot read the project at all — `objectVersion 77` is a
-    # format it does not know — long before it gets as far as the macOS 26
-    # deployment target or the Liquid Glass APIs the settings panel uses.
-    runs-on: macos-26
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
-      - uses: actions/checkout@v7
-
-      # Printed rather than assumed: when this job fails on a runner image
-      # change, the toolchain is the first thing worth seeing.
-      - name: Show toolchain
-        run: |
-          xcodebuild -version
-          xcrun --show-sdk-version
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Check local signing detection
-        run: bash Scripts/test-signing.sh
-
-      # Unsigned on purpose: no identity exists on a runner, and the tests
-      # read fixtures rather than keychains — see `make test-ci`.
-      - name: Run unit tests
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: xcodebuild -version && xcrun swift --version
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: integrations/VSCode/package-lock.json
+      - name: Verify release metadata and logo provenance
+        run: make metadata
+      - name: Unit and native regression tests
         run: make test-ci
-
-      - name: Verify SwiftPM resolution
-        run: make verify-deps
+      - name: Content-stripping and local IPC smoke checks
+        run: make smoke
+      - name: Telemetry and source-aware history checks
+        run: make smoke-telemetry
+      - name: Native app and lifecycle checks
+        run: make smoke-history smoke-timeline smoke-notch
+      - name: Verify universal development bundle
+        run: |
+          make universal
+          python3 scripts/verify-bundle.py build/Tokenotch.app --universal
+      - name: Build and verify development installers
+        run: python3 scripts/package.py --skip-build
+      - name: Ensure missing approval fails closed
+        run: |
+          if python3 scripts/release.py --check; then
+            echo "Release accepted without approval/signing configuration"
+            exit 1
+          fi

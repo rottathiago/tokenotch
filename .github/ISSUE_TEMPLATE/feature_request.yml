@@ -1,12 +1,14 @@
 name: Feature Request
-description: Suggest an idea or improvement for Codenotch.
+description: Suggest a focused improvement for Tokenotch's local Copilot companion.
 title: "feat: "
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thank you for suggesting an enhancement for Codenotch!
+        Describe a focused improvement for Tokenotch's local macOS Copilot companion.
+        Check the feature reference and release-readiness document first.
+        Do not include credentials, prompts, private paths or transcripts.
 
   - type: textarea
     id: problem

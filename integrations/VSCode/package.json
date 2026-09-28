@@ -1,0 +1,61 @@
+{
+  "name": "tokenotch-vscode",
+  "displayName": "Tokenotch Local Integration",
+  "description": "Consent-based local Tokenotch setup and public settings diagnostics.",
+  "icon": "icon.png",
+  "version": "1.0.0",
+  "publisher": "rottathiago",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rottathiago/tokenotch.git",
+    "directory": "integrations/VSCode"
+  },
+  "engines": {
+    "vscode": "^1.138.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onUri"
+  ],
+  "main": "./src/extension.cjs",
+  "contributes": {
+    "commands": [
+      {
+        "command": "tokenotch.configureLocalIntegration",
+        "category": "Tokenotch",
+        "title": "Configure local integration"
+      },
+      {
+        "command": "tokenotch.removeOwnedConfiguration",
+        "category": "Tokenotch",
+        "title": "Remove owned configuration"
+      },
+      {
+        "command": "tokenotch.checkIntegration",
+        "category": "Tokenotch",
+        "title": "Check integration"
+      }
+    ]
+  },
+  "capabilities": {
+    "virtualWorkspaces": false,
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "package": "vsce package --no-dependencies --out TokenotchVSCode.vsix",
+    "package:contents": "vsce ls --no-dependencies"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "3.7.1"
+  }
+}

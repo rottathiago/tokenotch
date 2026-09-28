@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report an issue or unexpected behavior in Codenotch.
+description: Report a Tokenotch issue with version and redacted diagnostic information.
 title: "fix: "
 labels: ["bug"]
 body:
@@ -7,6 +7,8 @@ body:
     attributes:
       value: |
         Thank you for reporting a bug! Please fill out the sections below to help us investigate.
+        Do not report vulnerabilities here; read SECURITY.md for private reporting.
+        Use synthetic examples and inspect diagnostics/screenshots before sharing.
 
   - type: textarea
     id: description
@@ -22,7 +24,7 @@ body:
       label: Steps to Reproduce
       description: Steps to reproduce the behavior.
       placeholder: |
-        1. Open Codenotch with provider '...'
+        1. Open Tokenotch with local client '...'
         2. Perform action '...'
         3. See error
     validations:
@@ -39,17 +41,19 @@ body:
   - type: dropdown
     id: provider
     attributes:
-      label: Affected Provider (if applicable)
-      description: Which AI provider or subsystem is experiencing issues?
+      label: Affected integration
+      description: Which local Copilot client or subsystem is experiencing issues?
       options:
-        - Claude (CLI / Desktop)
-        - OpenAI Codex
-        - Gemini API
-        - Ollama (Local)
-        - LM Studio (Local)
+        - Copilot CLI (local)
+        - VS Code Local Preview hooks
+        - VS Code model/token usage
+        - Account quota or sign-in
+        - History, timelines or session notices
+        - Public service health
+        - Notification policy
         - UI / Notch Presentation
         - Settings / Preferences
-        - Other / Not Provider-Specific
+        - Other
     validations:
       required: false
 
@@ -65,18 +69,18 @@ body:
   - type: input
     id: version
     attributes:
-      label: Codenotch Version
-      description: The version of Codenotch where this occurred (e.g., 1.9.0, or git commit SHA).
-      placeholder: "1.9.0"
+      label: Tokenotch and client versions
+      description: App commit/version, CLI version or VS Code and Copilot extension versions.
+      placeholder: "Tokenotch 1.0.0 (build); client version..."
     validations:
       required: true
 
   - type: textarea
     id: logs
     attributes:
-      label: Relevant Logs (Unified Log)
+      label: Redacted diagnostics
       description: |
-        Run `/usr/bin/log stream --predicate 'subsystem == "com.vinz.codenotch"' --level debug` and paste relevant lines.
+        Preview and copy diagnostics from Tokenotch Settings. Do not include prompts, tokens, paths or transcripts.
       render: shell
     validations:
       required: false

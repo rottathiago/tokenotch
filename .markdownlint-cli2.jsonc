@@ -1,0 +1,15 @@
+{
+  "config": {
+    "MD013": false,
+    "MD024": { "siblings_only": true },
+    "MD033": { "allowed_elements": ["picture", "source", "img"] }
+  },
+  "globs": [
+    "**/*.{md,mdx,markdown}",
+    ".github/**/*.{md,mdx,markdown}",
+    "!**/node_modules/**",
+    "!build/**",
+    "!.build/**",
+    "!DerivedData/**"
+  ]
+}

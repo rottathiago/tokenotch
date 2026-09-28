@@ -1,5 +1,8 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
-  - name: Ask a question or discuss ideas
-    url: https://github.com/vinzdg/codenotch/discussions
-    about: Ask questions, share ideas, and engage with the community.
+  - name: Setup, recovery and uninstall
+    url: https://github.com/rottathiago/tokenotch/blob/HEAD/docs/support.md
+    about: Read the support guide before reporting a setup or recovery problem.
+  - name: Security reporting policy
+    url: https://github.com/rottathiago/tokenotch/blob/HEAD/SECURITY.md
+    about: Never post vulnerabilities or credentials in a public issue.

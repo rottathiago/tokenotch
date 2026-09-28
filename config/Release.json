@@ -1,0 +1,11 @@
+{
+  "name": "Tokenotch",
+  "version": "1.0.0",
+  "build": "1",
+  "minimumOS": "15.0",
+  "bundleID": "io.github.rottathiago.tokenotch",
+  "repository": "rottathiago/tokenotch",
+  "publisher": "rottathiago",
+  "companionName": "tokenotch-vscode",
+  "storageDirectory": ".tokenotch"
+}

@@ -1,0 +1,10 @@
+# PR checks add --offline; external checks are explicit, advisory and HTTPS-only.
+include_fragments = "anchor-only"
+exclude_all_private = true
+include_mail = false
+no_progress = true
+max_concurrency = 4
+max_retries = 1
+timeout = 20
+max_redirects = 0
+exclude_path = ['(^|/)(node_modules|build|\.build|DerivedData|\.git)/']

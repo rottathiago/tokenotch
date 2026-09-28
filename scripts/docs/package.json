@@ -1,0 +1,20 @@
+{
+  "name": "tokenotch-docs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Development-only Markdown and link checks for Tokenotch",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "config": {
+    "lycheeVersion": "0.24.2"
+  },
+  "scripts": {
+    "test": "node --test test.mjs"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "0.23.3"
+  }
+}
