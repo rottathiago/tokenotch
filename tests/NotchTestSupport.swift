@@ -1378,6 +1378,7 @@ enum NotchChecks {
         settle(2.5)
         try require(windows().count == 2, "Notification reveal respects its minimum duration")
         settle(1)
+        try waitUntil { windows().count == 1 && !collapsedHost.contains(screenPoint: center) }
         try require(windows().count == 1 && !collapsedHost.contains(screenPoint: center), "Notification reveal returns to a pill")
         model.options.allDisplays = true
         model.options.edge = "right"
