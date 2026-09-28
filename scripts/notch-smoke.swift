@@ -11,6 +11,13 @@ enum NotchSmoke {
             URL(fileURLWithPath: $0, isDirectory: true)
         }
         if let directory { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
+        if CommandLine.arguments.contains("--ui-timing") {
+            try NotchChecks.waits()
+            try NotchChecks.historyRender(directory: directory)
+            try NotchChecks.autoHide()
+            print("PASS: bounded fixture waits, native history rendering and clock-controlled auto-hide transitions.")
+            return
+        }
         try UsageReportingChecks.savedAndLive(directory: directory)
         try UsageReportingChecks.liveOnly()
         print("PASS: Settings/notch Today reconciliation, persisted cache categories, restart, source filters, reporting day, live cap, pause, errors and deletion.")

@@ -31,6 +31,13 @@ jobs:
       - name: Unit and native regression tests
         timeout-minutes: 15
         run: make test-ci
+      - name: Repeat native UI timing regressions
+        timeout-minutes: 5
+        run: |
+          for attempt in 1 2 3; do
+            echo "Native UI timing pass $attempt"
+            xcrun swift test --skip-build --filter 'NotchWaitTests|HistoryPresentationTests|testIdleAutoHideAndHoverExpansion'
+          done
       - name: Content-stripping and local IPC smoke checks
         run: make smoke
       - name: Telemetry and source-aware history checks
