@@ -33,7 +33,7 @@ enum ProductionAppChecks {
             _ = try JSONDecoder().decode(TokenotchOptions.self, from: JSONSerialization.data(withJSONObject: malformed))
             throw NotchCheckFailure.failed("Malformed settings were silently accepted")
         } catch is TokenotchError {}
-        let available = ReleaseUpdateController {
+        let available = ReleaseUpdateController(currentVersion: TokenotchProduct.version) {
             try ReleaseInfo.parse(Data(#"{"tag_name":"v999.0.0","draft":false,"prerelease":false}"#.utf8))
         }
         try NotchChecks.require(!available.checking && available.available == nil, "Update checks started without a user action")

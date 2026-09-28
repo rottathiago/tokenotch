@@ -9,9 +9,12 @@ final class ReleaseUpdateController: ObservableObject {
     @Published private(set) var available: ReleaseInfo?
     private var task: Task<Void, Never>?
     private var generation = UUID()
+    private let currentVersion: String
     private let latest: () async throws -> ReleaseInfo
 
-    init(latest: @escaping () async throws -> ReleaseInfo = { try await ReleaseCheck.latest() }) {
+    init(currentVersion: String = AppVersion.short,
+         latest: @escaping () async throws -> ReleaseInfo = { try await ReleaseCheck.latest() }) {
+        self.currentVersion = currentVersion
         self.latest = latest
     }
 
@@ -29,7 +32,7 @@ final class ReleaseUpdateController: ObservableObject {
             do {
                 let release = try await latest()
                 guard generation == id, !Task.isCancelled else { return }
-                guard let current = ReleaseVersion(AppVersion.short) else { throw ReleaseCheckError.invalid }
+                guard let current = ReleaseVersion(currentVersion) else { throw ReleaseCheckError.invalid }
                 if release.version > current {
                     available = release
                     message = "\(release.tag) is available. Download and install it from the official release page."

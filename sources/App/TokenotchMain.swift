@@ -7,7 +7,6 @@ import SwiftUI
 @MainActor
 enum TokenotchMain {
     static func main() {
-        guard NSClassFromString("XCTestCase") == nil else { return }
         let application = NSApplication.shared
         let delegate = AppDelegate()
         application.delegate = delegate

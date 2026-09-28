@@ -352,10 +352,7 @@ enum OnboardingChecks {
             func find() throws -> VNRecognizedTextObservation? {
                 host.layoutSubtreeIfNeeded()
                 RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-                guard let image = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-                    throw NotchCheckFailure.failed("Missing interactive onboarding image")
-                }
-                host.cacheDisplay(in: host.bounds, to: image)
+                let image = try NotchChecks.capture(host)
                 return try text(in: image).first { $0.topCandidates(1).first?.string == title }
             }
             var found = try find()
