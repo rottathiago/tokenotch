@@ -13,15 +13,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Sample test discovery if it stalls
+      - name: Sample test execution if it stalls
         run: |
           xcrun swift build --build-tests
           python3 - <<'PY'
           import pathlib
           import subprocess
-          process = subprocess.Popen(["xcrun", "swift", "test", "list", "--skip-build"])
+          process = subprocess.Popen(["xcrun", "swift", "test", "--skip-build"],
+                                     env={**__import__("os").environ, "NSUnbufferedIO": "YES"})
           try:
-              process.wait(timeout=60)
+              process.wait(timeout=240)
           except subprocess.TimeoutExpired:
               rows = subprocess.check_output(["ps", "-axo", "pid,ppid,command"], text=True).splitlines()
               descendants = {process.pid}
@@ -37,6 +38,6 @@ jobs:
               for pid in sorted(descendants, reverse=True):
                   subprocess.run(["kill", "-TERM", str(pid)], check=False)
               process.wait(timeout=10)
-              raise SystemExit("Test discovery stalled; sampled its child processes.")
+              raise SystemExit("Test execution stalled; sampled its child processes.")
           raise SystemExit(process.returncode)
           PY
