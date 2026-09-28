@@ -125,6 +125,7 @@ final class NotchFleet {
     private var scale: CGFloat { NotchLayout.scale(model.options.scale) }
 
     private func rebuild() {
+        guard !isDragging else { return }
         dismiss(acknowledging: false)
         panels.forEach { $0.close() }
         panels.removeAll()
@@ -225,6 +226,7 @@ final class NotchFleet {
     }
 
     func handlePointerEvent(_ event: NSEvent) {
+        guard started, !isDragging else { return }
         if event.type != .mouseMoved {
             let pointer = pointerLocation()
             let overNotch = panels.contains { contains(pointer, in: $0) }

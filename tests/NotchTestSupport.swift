@@ -1323,8 +1323,12 @@ enum NotchChecks {
             try require(windows().count == 1 && !host.contains(screenPoint: center), "An outside click unpins and collapses")
             panel.onDragStart?()
             try require(host.contains(screenPoint: center), "Dragging the compact indicator expands the notch")
+            fleet.handlePointerEvent(click)
+            try require(host.contains(screenPoint: center), "Outside pointer events must not collapse an active drag")
+            NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification, object: nil)
             settle()
-            try require(host.contains(screenPoint: center), "Pointer polling must not collapse during a drag")
+            try require(panel.isVisible && host.contains(screenPoint: center),
+                        "Pointer polling and app activation must not replace or collapse a dragged notch")
             panel.onDragEnd?()
             settle()
             let (restoredPanel, restoredHost) = try badge()
