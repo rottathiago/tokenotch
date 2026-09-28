@@ -542,16 +542,7 @@ enum SessionAttentionChecks {
                 defer { panel.close() }
                 RunLoop.main.run(until: Date().addingTimeInterval(0.1))
                 func click(x: CGFloat) throws {
-                    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                        guard let event = NSEvent.mouseEvent(with: type,
-                            location: CGPoint(x: x, y: panel.frame.height / 2), modifierFlags: [],
-                            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
-                            context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) else {
-                            throw NotchCheckFailure.failed("Could not create a request-row mouse event")
-                        }
-                        panel.sendEvent(event)
-                    }
-                    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+                    try NotchChecks.click(panel, at: CGPoint(x: x, y: panel.frame.height / 2))
                 }
                 try click(x: width - NotchLayout.rowHeight * scale / 2)
                 if row.notice?.kind.isRequest == true {

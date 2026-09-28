@@ -377,15 +377,7 @@ enum OnboardingChecks {
             let bounds = found.boundingBox
             let point = CGPoint(x: bounds.midX * host.bounds.width,
                                 y: (host.isFlipped ? 1 - bounds.midY : bounds.midY) * host.bounds.height)
-            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                guard let event = NSEvent.mouseEvent(with: type, location: host.convert(point, to: nil), modifierFlags: [],
-                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
-                    context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) else {
-                    throw NotchCheckFailure.failed("Missing onboarding mouse event")
-                }
-                panel.sendEvent(event)
-            }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+            try NotchChecks.click(panel, at: host.convert(point, to: nil))
         }
 
         try press("Get started")

@@ -96,7 +96,12 @@ final class NotchFleet {
         let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.started else { return }
-                self.rebuild()
+                if name == NSWorkspace.didActivateApplicationNotification,
+                   self.model.options.allDisplays || self.model.options.displayID != nil {
+                    self.updateVisibility()
+                } else {
+                    self.rebuild()
+                }
             }
         }
         observers.append((center, token))

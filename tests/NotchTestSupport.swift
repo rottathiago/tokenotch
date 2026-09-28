@@ -27,6 +27,26 @@ enum NotchChecks {
         throw NotchCheckFailure.failed("Native fixture state did not settle")
     }
 
+    static func click(_ panel: NSWindow, at point: CGPoint) throws {
+        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) else {
+                throw NotchCheckFailure.failed("Could not create a fixture mouse event")
+            }
+            return event
+        }
+        let down = try event(.leftMouseDown)
+        let up = try event(.leftMouseUp)
+        // AppKit controls can synchronously track until mouse-up inside sendEvent.
+        NSApplication.shared.postEvent(up, atStart: true)
+        panel.sendEvent(down)
+        if let pending = panel.nextEvent(matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true) {
+            panel.sendEvent(pending)
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    }
+
     static func account(used: Double = 73, unlimited: Bool = false, longCopy: Bool = false) throws -> CopilotAccountSnapshot {
         let identity = try JSONSerialization.data(withJSONObject: [
             "isAuthenticated": true, "login": longCopy ? String(repeating: "account-", count: 12) : "fixture"
@@ -725,9 +745,13 @@ enum NotchChecks {
             scroll.reflectScrolledClipView(scroll.contentView)
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         }
-        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
+            pixelsWide: Int(ceil(host.bounds.width * 2)), pixelsHigh: Int(ceil(host.bounds.height * 2)),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
             throw NotchCheckFailure.failed("Hosting view capture unavailable")
         }
+        bitmap.size = host.bounds.size
         host.cacheDisplay(in: host.bounds, to: bitmap)
         return bitmap
     }
