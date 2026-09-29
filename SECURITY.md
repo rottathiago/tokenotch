@@ -4,10 +4,10 @@ Do not post vulnerabilities, credentials, private paths, transcripts or raw
 telemetry in public issues. Ordinary bugs and feature ideas belong in Issues;
 security reports and conduct complaints require separate private routes.
 
-## Release preparation
+## Release security
 
-There is no accepted public 1.0.0 release yet. A configured workflow, passing
-tests or development build is not a security certification.
+A configured workflow, passing tests or published release is not a security
+certification.
 Public unsigned releases are allowed and are covered by this reporting process.
 Signing and notarization are optional and do not replace security review.
 
@@ -34,8 +34,8 @@ There is no guaranteed response time, bounty or external certification.
 
 ## Supported versions
 
-No binary release has been published yet. Once available, the latest regular
-release is the target for security fixes, whether unsigned or Developer ID signed.
+The latest published regular release is the target for security fixes, whether
+unsigned or Developer ID signed.
 Older releases and development snapshots may require an update to receive fixes.
 This is best-effort maintenance, not a security certification or response-time
 guarantee.

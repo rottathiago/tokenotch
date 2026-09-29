@@ -1,9 +1,10 @@
 # Tokenotch release readiness
 
-Tokenotch is preparing its independent Copilot-only macOS 1.0.0 release.
+Tokenotch 1.0.0 is the independent Copilot-only macOS release target.
 Public source and development CI are available. Regular unsigned DMG/PKG releases
-are allowed; Developer ID signing and notarization are optional. No binary release
-has been published yet, and in-app installation remains a separate milestone.
+are allowed; Developer ID signing and notarization are optional. Consult the
+[official releases](https://github.com/rottathiago/tokenotch/releases) for download
+availability and artifact status. In-app installation remains a separate milestone.
 This is a readiness record, not certification of unrecorded acceptance.
 The [feature reference](docs/features.md) describes implemented behavior and the
 [compatibility matrix](docs/compatibility.md) distinguishes targets from acceptance.
