@@ -205,32 +205,24 @@ source app in GitHub; workflow display labels are not necessarily API context
 names. Keep Actions' default token permissions read-only and disable Actions
 approval of PRs.
 
-Use separate rulesets on the actual default branch:
+On the actual default branch, use a **required checks and integrity** ruleset:
+require both CI contexts, a PR and resolved review discussions, require the
+branch to be up to date before merging, and block force-pushes/deletion. Give
+this ruleset no maintainer bypass.
 
-- **Required checks and integrity:** require both CI contexts, a PR, resolved
-  review discussions, and block force-pushes/deletion. Give this ruleset no
-  maintainer bypass. Require the branch to be up to date before merging.
-- **Code-owner review:** require one approval from the code owner and dismiss
-  stale approvals. Keep `.github/CODEOWNERS` as `* @rottathiago`. Grant only the
-  sole maintainer a PR-only bypass of this review ruleset for owner-authored
-  changes. Record the exception in the PR; it is not a self-approval or a CI
-  exception.
-
-GitHub does not let authors approve their own PRs. Other contributors may review
-but cannot replace the required code-owner approval. Keep the owner as the only
-administrator/maintainer with merge authority. If the available bypass actor is
-the repository-administrator role, verify its membership: adding another
-administrator expands that exception. Inspect extra approval settings for
-unattributed Copilot PRs so the solo-maintainer policy does not accidentally
-require a second reviewer. Do not claim enforcement from CODEOWNERS alone.
+While Tokenotch has a single maintainer, no approving review is required, because
+GitHub does not let authors approve their own PRs. Keep the owner as the only
+administrator/maintainer with merge authority. `.github/CODEOWNERS` (`* @rottathiago`)
+only requests the owner's review; it does not enforce approval. If more
+maintainers join, add a code-owner review ruleset requiring one approval.
 
 Restrict version-tag creation and verify protections on the actual default
 branch. Some repository-plan settings are unavailable while private; make any
 plan upgrade or public-cutover setup explicit rather than claiming protection
 from workflow YAML. No signing/release secrets go to PR workflows.
 At public cutover, promptly apply and inspect the prepared protections before
-announcement. Verify that an owner review exception cannot merge a PR with
-failing required checks. Do not claim contributor-path testing without a
+announcement. Verify that a PR with failing required checks cannot be merged.
+Do not claim contributor-path testing without a
 separate test identity.
 
 GitHub private vulnerability reporting is available for public repositories.
