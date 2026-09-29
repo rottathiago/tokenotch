@@ -1,5 +1,8 @@
 # Privacy and operations
 
+For a diagram-based walkthrough of how usage is captured, see the
+[architecture overview](architecture.md).
+
 Tokenotch has no backend or app telemetry. It does not discover tokens or read
 client credential databases. After explicit sign-in consent it invokes the
 official Copilot CLI for browser authentication and read-only account quota RPCs,
