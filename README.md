@@ -29,6 +29,7 @@ VS Code, and get a nudge the moment a session needs you.
   <a href="#why-tokenotch">Why Tokenotch</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#requirements">Requirements</a> ·
+  <a href="#architecture">Architecture</a> ·
   <a href="#roadmap-and-updates">Roadmap</a> ·
   <a href="#contributing">Contributing</a>
 </p>
@@ -162,6 +163,19 @@ code and responses are discarded before anything is saved, and every optional
 feature (history, timelines, notifications, account quota) is off until you turn
 it on. Read the details in [Privacy and retention](docs/tokenotch-privacy.md)
 and the [architecture overview](docs/architecture.md).
+
+## Architecture
+
+Curious how Tokenotch works under the hood, or want to check its privacy claims
+yourself? The [architecture overview](docs/architecture.md) covers:
+
+| | Topic |
+| :---: | --- |
+| 🧩 | [Components](docs/architecture.md#components) and how usage events travel between them on your Mac |
+| 🛡️ | [Trust boundaries](docs/architecture.md#trust-boundaries-and-threat-model) and what the design protects against |
+| 📥 | How usage is captured from [Copilot CLI](docs/architecture.md#copilot-cli-usage-capture) and [VS Code](docs/architecture.md#vs-code-usage-capture) |
+| 🔢 | [What is kept, hashed or discarded](docs/architecture.md#what-is-kept-hashed-or-discarded) and where it is [stored](docs/architecture.md#local-storage) |
+| 🔍 | [Verify it yourself](docs/architecture.md#verify-it-yourself), with links to the code behind each claim |
 
 ## Roadmap and updates
 
