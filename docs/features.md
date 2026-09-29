@@ -567,7 +567,11 @@ the notch XCTest cases without requiring SwiftPM or XCTest.
 Optional XcodeGen path: `make gen`, then open `Tokenotch.xcodeproj`, or run
 `make test-xcode`. The native bundle script is the primary local development path.
 No target installs over another product's app or publishes a release.
-`make release` fails closed until recorded release gates and signing prerequisites are satisfied.
+`make release` builds unsigned public installers from the owned repository and a
+clean matching version tag after build and installer checks. Signing and
+notarization are optional; `make release RELEASE_ARGS=--signed` additionally
+requires Apple credentials and the signed-release acceptance record. See
+[releasing](releasing.md) for the regular GitHub release workflow.
 
 Use a coherent full Xcode installation for `make test`; a mismatched SwiftPM or
 Command Line Tools installation is not evidence that XCTest passed.

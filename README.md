@@ -16,33 +16,39 @@ attention, without saving your prompts or code.
 Tokenotch is an independent project and is not affiliated with or endorsed by
 GitHub or Microsoft.
 
-**Public source, pre-production app:** source and development CI are available
-in this repository, but there is no stable application release yet. Universal
-development builds are available from source. Production installers remain blocked until
-signing, notarization and real-client/hardware acceptance are approved. An ad-hoc
-development build is not a notarized production release.
+**Public source and unsigned distribution:** regular GitHub Releases may contain
+unsigned DMG and PKG installers. Apple Developer ID signing and notarization are
+optional, not publication requirements. No application release has been published
+yet; universal development builds are available from source. The download page
+will identify the installers' actual signing status and known limitations.
 
 Contributions are welcome; start with [contributing](CONTRIBUTING.md).
 [Release readiness](TASKS.md) records what still blocks public source and
-signed-installer publication.
+installer publication and optional signed-release acceptance.
 
 ## Install
 
 The intended distribution channel is
 [official GitHub Releases](https://github.com/rottathiago/tokenotch/releases).
-When a stable signed release is published, download either installer:
+When a release is published, download either installer:
 
 - **Tokenotch.dmg**: open it and drag **Tokenotch.app** onto **Applications**.
 - **Tokenotch.pkg**: open it and follow the installer; it places
   **Tokenotch.app** in `/Applications` (administrator approval required) and
   refuses to downgrade a newer installed version.
 
-Then open Tokenotch from Applications normally. Verify the download against its
-`.sha256` file if you like. Do not disable Gatekeeper or strip quarantine to
-work around a failed signature.
+Unsigned downloads may be blocked by macOS. After trying to open the installer
+or app, use **System Settings > Privacy & Security > Open Anyway** only if you
+trust the official download and your Mac permits it. Managed Macs may not allow
+this. Do not disable Gatekeeper or strip quarantine. See [installation help](docs/support.md#unsigned-downloads).
 
-To build local, **unsigned** installers from source, run `make package`; they
-are written to `build/packages/` and are for testing on your own Mac only.
+SHA-256 checksums and the source revision appear in the release notes; the only
+release attachments are the DMG and PKG. Unsigned apps use ad-hoc signing, not a
+verified Apple Developer ID, and have not been notarized by Apple.
+
+To build **unsigned** development installers from source, run `make package`;
+they are written to `build/packages/`. Use `make release` from a clean matching
+version tag to build verified unsigned public installers in `build/releases/`.
 
 Requires **macOS 15 or later**, Apple Silicon or Intel, and a supported local
 Copilot client. Client availability and acceptance are recorded in the
@@ -135,9 +141,11 @@ The source logo is `docs/design/tokenotch-notch-logo.png` and the app icon sourc
 Builds refuse stale app/menu/Settings/companion artwork.
 
 See [contributing](CONTRIBUTING.md) and the
-[signed release runbook](docs/releasing.md). `make release` fails closed without
-exact-revision acceptance, owned identities, a clean tagged tree, and Developer
-ID/notarization configuration. Nothing is published by local packaging.
+[release runbook](docs/releasing.md). `make release` defaults to unsigned public
+installers and requires the owned repository, a clean tagged tree, matching
+metadata, release notes, and passing build/installer checks. Apple credentials
+and the signed-release acceptance record are required only with
+`make release RELEASE_ARGS=--signed`. Nothing is published by local packaging.
 
 Documentation-only changes need no Xcode. Follow the locked tooling setup in
 [contributing](CONTRIBUTING.md#prerequisites), then run `make docs-check`.

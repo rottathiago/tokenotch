@@ -69,7 +69,9 @@ Update tool pins and lockfiles together when intentionally upgrading them.
 
 `make test` and `make test-ci` run the same XCTest and release-gate suite.
 `make build` produces a host-architecture development app; `make universal`
-produces both architectures. Neither is a signed/notarized public release.
+produces both architectures. Both use ad-hoc signing without notarization.
+`make release` packages unsigned public installers from a clean matching tag;
+`make release RELEASE_ARGS=--signed` opts into Developer ID signing and notarization.
 `make gen` packages the companion and generates the optional Xcode project;
 `make test-xcode` runs its scheme. Native UI smoke checks require a GUI session.
 
@@ -159,6 +161,8 @@ Brand sources are `docs/design/tokenotch-notch-logo.png` and
 `python3 scripts/make-brand-assets.py`; keep app/companion assets consistent.
 Hashes establish correspondence, not distribution rights.
 
-See [releasing](docs/releasing.md) for source publication and signed installers.
-PRs receive no signing secrets. Do not bypass owner approval, exact-revision
-evidence, licensing, real-client/hardware, signing or notarization gates.
+See [releasing](docs/releasing.md) for public unsigned releases and optional signed
+installers. PRs receive no signing secrets. Keep required CI, owned source,
+licensing, version/tag checks, truthful verification status and owner-authorized
+publication. Unsigned releases do not require Apple credentials or a signed-release
+acceptance record; never fabricate that evidence or claim notarization.

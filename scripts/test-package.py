@@ -9,6 +9,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ElementTree
 import zipfile
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 package = runpy.run_path(str(ROOT / "scripts/package.py"))
@@ -53,11 +54,39 @@ class InstallerMetadata(unittest.TestCase):
         for channel in ["development", "release"]:
             self.assertEqual(self.distribution(channel).find("title").text, "Tokenotch")
 
-    def test_installer_text_is_channel_independent(self):
+    def test_unsigned_installer_text_discloses_the_actual_signing_status(self):
         welcome, conclusion = package["installer_text"](self.config)
         for text in [welcome, conclusion]:
             self.assertNotIn("DEVELOPMENT", text)
-            self.assertNotIn("notarized", text)
+        self.assertIn("unsigned and have not been notarized by Apple", welcome)
+        self.assertIn("ad-hoc signing, not a verified Developer ID", welcome)
+        self.assertIn("Privacy & Security > Open Anyway", welcome)
+        self.assertIn(f"https://github.com/{self.config['repository']}/releases", welcome)
+        self.assertIn("Do not disable Gatekeeper or remove quarantine", welcome)
+
+    def test_signed_installer_text_does_not_claim_unsigned_distribution(self):
+        welcome, conclusion = package["installer_text"](self.config, signed=True)
+        self.assertNotIn("unsigned", welcome)
+        self.assertIn("Applications", welcome)
+        self.assertIn("Applications", conclusion)
+
+    def test_unsigned_dmg_includes_a_disclosure_file(self):
+        for signed in [False, True]:
+            with self.subTest(signed=signed), tempfile.TemporaryDirectory(prefix="tokenotch-dmg-stage-test-") as temporary:
+                output = pathlib.Path(temporary) / "Tokenotch.dmg"
+                notices = []
+
+                def run(*args, capture=False):
+                    if args[:2] == ("hdiutil", "create"):
+                        stage = pathlib.Path(args[args.index("-srcfolder") + 1])
+                        notice = stage / "UNSIGNED.txt"
+                        notices.append(notice.read_text() if notice.exists() else None)
+
+                with patch.dict(package["build_dmg"].__globals__, run=run,
+                                copy_bundle=lambda source, destination: destination.mkdir()):
+                    package["build_dmg"](self.config, pathlib.Path(temporary) / "Tokenotch.app",
+                                         output, identity="synthetic-certificate" if signed else None)
+                self.assertEqual(notices, [None if signed else package["unsigned_notice"](self.config) + "\n"])
 
     def test_installer_license_keeps_paragraphs_without_hard_wraps(self):
         license_text = package["installer_license"]()

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Build Tokenotch installers (drag-to-Applications DMG and /Applications PKG).
 
-Without arguments this packages the ad-hoc signed development bundle for local
-testing. Signed, notarized installers are produced only by scripts/release.py,
-which reuses these builders behind the release acceptance gates. Never publishes.
+Without arguments this packages the ad-hoc signed development bundle. Public
+release packaging uses scripts/release.py, with optional Developer ID signing
+and notarization. These builders never publish.
 """
 import argparse
 import hashlib
@@ -83,7 +83,18 @@ def distribution_xml(config, component, channel):
 """
 
 
-def installer_text(config):
+def unsigned_notice(config):
+    return (
+        "These installers are unsigned and have not been notarized by Apple. "
+        "The app uses ad-hoc signing, not a verified Developer ID. "
+        f"Download only from https://github.com/{config['repository']}/releases. "
+        "macOS may block opening the download. If you trust it, you can use "
+        "System Settings > Privacy & Security > Open Anyway where permitted. "
+        "Managed Macs may not allow this. Do not disable Gatekeeper or remove quarantine."
+    )
+
+
+def installer_text(config, signed=False):
     name = config["name"]
     welcome = (
         f"Welcome to {name} {config['version']}\n\n"
@@ -96,6 +107,8 @@ def installer_text(config):
         f"Requires macOS {config['minimumOS']} or later on Apple Silicon or Intel.\n\n"
         f"{name} is an independent project and is not affiliated with or endorsed by "
         f"GitHub or Microsoft.\n")
+    if not signed:
+        welcome += "\n" + unsigned_notice(config) + "\n"
     conclusion = (
         f"{name} is ready.\n\n"
         f"Open {name} from your Applications folder. The setup guide will help you "
@@ -137,7 +150,7 @@ def build_pkg(config, app, output, channel, identity=None, keychain=None):
         run("pkgbuild", "--root", payload, "--component-plist", plist,
             "--identifier", package_identifier(config), "--version", config["version"],
             "--install-location", INSTALL_LOCATION, packages / component)
-        welcome, conclusion = installer_text(config)
+        welcome, conclusion = installer_text(config, signed=bool(identity))
         (resources / "welcome.txt").write_text(welcome)
         (resources / "conclusion.txt").write_text(conclusion)
         (resources / "LICENSE.txt").write_text(installer_license())
@@ -162,6 +175,8 @@ def build_dmg(config, app, output, identity=None, keychain=None):
         stage.mkdir()
         copy_bundle(app, stage / f"{config['name']}.app")
         shutil.copy2(ROOT / "LICENSE", stage / "LICENSE.txt")
+        if not identity:
+            (stage / "UNSIGNED.txt").write_text(unsigned_notice(config) + "\n")
         (stage / "Applications").symlink_to(INSTALL_LOCATION)
         run("hdiutil", "create", "-quiet", "-volname", config["name"], "-srcfolder", stage,
             "-fs", "HFS+", "-format", "UDZO", "-imagekey", "zlib-level=9", output)
@@ -254,8 +269,8 @@ def main():
     for target in targets.values():
         write_checksum(target)
         print(f"Development installer: {target.relative_to(ROOT) if target.is_relative_to(ROOT) else target}")
-    print("Ad-hoc signed and NOT notarized: for local testing only. "
-          "Downloaded copies are blocked by Gatekeeper; use make release for distribution.")
+    print("Ad-hoc signed and NOT notarized. Public unsigned distribution is allowed; "
+          "use make release for a tagged, verified public release with disclosure and checksums.")
 
 
 if __name__ == "__main__":
