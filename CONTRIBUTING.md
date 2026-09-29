@@ -93,8 +93,12 @@ pointer timer. Do not replace state checks with fixed sleeps or retry failed tes
 until they pass.
 
 Both workflows use read-only repository permissions and cancel superseded runs
-for the same branch or PR. Required checks have no path filters: documentation-only
-PRs still receive both check results. Native CI builds development installers
+for the same branch or PR. They run on pull requests and on pushes to `main`.
+Required checks have no workflow path filters: every PR receives both check
+results. When a change touches only documentation (Markdown, `docs/` except the
+brand logo sources, documentation tooling and templates), the native `test` job
+is skipped, which GitHub reports as passing; any other file runs the full native
+suite. Native CI builds development installers
 for verification but does not publish them or receive signing secrets.
 
 ## Contracts, privacy and accessibility
