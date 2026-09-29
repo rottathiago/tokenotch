@@ -1,157 +1,190 @@
-# Tokenotch
+<!-- markdownlint-disable MD041 -->
+<div align="center">
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="sources/Resources/Brand/TokenotchMarkDark.png">
-  <img src="sources/Resources/Brand/TokenotchMark.png" width="180" alt="Tokenotch">
+  <img src="sources/Resources/Brand/TokenotchMark.png" width="140" alt="Tokenotch logo">
 </picture>
 
-**Visibility into your AI coding usage and patterns.**
+# Tokenotch
 
-Tokenotch gives developers clear visibility into their AI coding usage and
-patterns. It tracks token consumption and model usage across GitHub Copilot CLI
-and Visual Studio Code sessions. A minimalist notch interface lets you run multiple
-coding agents at once and alerts you when a session needs your action or
-attention, without saving your prompts or code.
+**Your AI coding usage, at a glance, right in your Mac's notch.**
 
-Tokenotch is an independent project and is not affiliated with or endorsed by
-GitHub or Microsoft.
+Track tokens, models and live Copilot sessions across GitHub Copilot CLI and
+VS Code, and get a nudge the moment a session needs you.
 
-**Public source and unsigned distribution:** regular GitHub Releases may contain
-unsigned DMG and PKG installers. Apple Developer ID signing and notarization are
-optional, not publication requirements. Download availability, actual signing
-status and known limitations are recorded on the
-[official release page](https://github.com/rottathiago/tokenotch/releases).
-Universal development builds are also available from source.
+[![Latest release](https://img.shields.io/github/v/release/rottathiago/tokenotch?label=release&color=111111)](https://github.com/rottathiago/tokenotch/releases/latest)
+[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-111111?logo=apple)](docs/getting-started.md#requirements)
+[![Apple Silicon + Intel](https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-555555)](docs/getting-started.md#requirements)
+[![MIT license](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
+[![CI](https://github.com/rottathiago/tokenotch/actions/workflows/ci.yml/badge.svg)](https://github.com/rottathiago/tokenotch/actions/workflows/ci.yml)
 
-Contributions are welcome; start with [contributing](CONTRIBUTING.md).
-[Release readiness](TASKS.md) records what still blocks public source and
-installer publication and optional signed-release acceptance.
+<a href="https://github.com/rottathiago/tokenotch/releases/latest/download/Tokenotch.dmg">
+  <img src="docs/design/download-macos.png" width="300" alt="Download Tokenotch for macOS">
+</a>
 
-## Install
+<sub>Free and open source · macOS 15+ · <a href="https://github.com/rottathiago/tokenotch/releases">All releases</a></sub>
 
-The intended distribution channel is
-[official GitHub Releases](https://github.com/rottathiago/tokenotch/releases).
-Choose either installer from a published release:
+<p>
+  <a href="#why-tokenotch">Why Tokenotch</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#get-started">Get started</a> ·
+  <a href="#roadmap-and-updates">Roadmap</a> ·
+  <a href="#contributing">Contributing</a>
+</p>
 
-- **Tokenotch.dmg**: open it and drag **Tokenotch.app** onto **Applications**.
-- **Tokenotch.pkg**: open it and follow the installer; it places
-  **Tokenotch.app** in `/Applications` (administrator approval required) and
-  refuses to downgrade a newer installed version.
+<img src="docs/design/tokenotch-stats1.png" width="380" alt="The Tokenotch panel expanded from the notch, showing premium request usage, two Copilot CLI sessions with context bars, a seven-day token chart and a per-model token breakdown">
 
-Unsigned downloads may be blocked by macOS. After trying to open the installer
-or app, use **System Settings > Privacy & Security > Open Anyway** only if you
-trust the official download and your Mac permits it. Managed Macs may not allow
-this. Do not disable Gatekeeper or strip quarantine. See [installation help](docs/support.md#unsigned-downloads).
+</div>
 
-SHA-256 checksums and the source revision appear in the release notes; the only
-release attachments are the DMG and PKG. Unsigned apps use ad-hoc signing, not a
-verified Apple Developer ID, and have not been notarized by Apple.
+## What is Tokenotch?
 
-To build **unsigned** development installers from source, run `make package`;
-they are written to `build/packages/`. Use `make release` from a clean matching
-version tag to build verified unsigned public installers in `build/releases/`.
+Tokenotch is a small macOS app that lives in your screen's notch. It quietly
+watches the GitHub Copilot sessions you run in **Copilot CLI** and **VS Code**,
+then turns what it sees into simple stats: how many tokens you use, which
+models you use them on, how full each session's context window is, and which
+session is waiting on you.
 
-Requires **macOS 15 or later**, Apple Silicon or Intel, and a supported local
-Copilot client. Client availability and acceptance are recorded in the
-[compatibility matrix](docs/compatibility.md); optional Preview capabilities
-must not be treated as guaranteed.
+No dashboards to open, no tabs to refresh. Glance up and you know.
 
-## First signal
+## Why Tokenotch
 
-1. Start the first-run guide and choose **Copilot CLI** or **Visual Studio Code**.
-   Setup stays inside the guide; you can connect either client or both.
-2. Configure at least one chosen client. CLI setup installs owned hooks and a
-   numeric usage extension. VS Code setup installs a bundled companion, then
-   asks for approval in your selected editor/profile. Installing that companion
-   alone is not completed configuration.
-3. Choose optional account quota, notifications, saved history, timelines, or
-   remembered notices. Each is independent and off by default on a fresh install.
-   **Finish setup** shows a welcome and a summary of configured and unfinished
-   items; activity is not required to complete setup.
-4. Reload existing CLI sessions or the VS Code window as instructed. Run your
-   normal Copilot work and look for **Data received**. “Installed” and “Waiting
-   for data” are not proof that events are arriving.
+| | Benefit | What you get |
+| :---: | --- | --- |
+| 👀 | **Usage at a glance** | Premium request usage and today's tokens, always one hover away in the notch. |
+| 🧠 | **Know your models** | Tokens and calls per model, split into input, output, cache read and cache write. |
+| 🔔 | **Never miss a prompt** | Run several agents at once; Tokenotch tells you when one is done or needs your input. |
+| 📏 | **Context before it's too late** | A context-window bar under every session shows how close it is to the limit. |
+| 📈 | **Spot your patterns** | Optional history with daily token charts, model share and response times. |
+| 🔒 | **Private by design** | No backend, no analytics. Prompts and code are never stored; everything stays on your Mac. |
 
-**Pause setup** or close the guide to resume at the same step later; this does
-not mark onboarding complete. Account quota sign-in uses the official CLI browser
-flow and does not replace a local client connection. After setup, use
-**Settings > Connections** to add or repair clients, **Usage** for account quota,
-or **General > Review Setup Guide** to revisit the guide without resetting consent.
+## See it in action
 
-## What Tokenotch can show
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/design/tokenotch-stats2.png" alt="Tokenotch Usage window with the Copilot plan's premium request usage, today's tokens, model calls and response time, a session needing attention and the list of live sessions">
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/design/tokenotch-stats3.png" alt="Tokenotch History window with 30 days of tokens, a daily stacked token chart and a table of models by share, tokens, calls and latency">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>Usage:</b> your Copilot plan, today's tokens and calls, and every live session in one place.</td>
+    <td align="center"><b>History:</b> daily tokens, model share and response times over time.</td>
+  </tr>
+</table>
 
-- A compact notch with explicit working, stopped, attention, stale, and unavailable states.
-- Partial local token/model observations, including distinct input/output/cache categories.
-- A context-window bar beneath each session shown in the notch, with reported usage,
-  explicit stale/unavailable states, and CLI refreshes after model or conversation changes.
-- Optional runtime-reported account quotas, separate from local history or your bill.
-- Independently opt-in notifications, local usage history, and session timelines.
-- Optional public Copilot service health and a previewable, redacted diagnostic report.
+## How it works
 
-A stopped turn does **not** prove task success. A viewed approval notice does
-**not** approve a request. Missing data is unavailable, not zero. Local counts
-are not account-wide billing, costs, or a productivity score.
+Think of Tokenotch as a **trip meter** for your AI coding. Your car's official
+odometer (GitHub) keeps the real total; the trip meter (Tokenotch) counts what
+happens while it is switched on, so you can see where the miles go.
 
-Remote SSH, containers, WSL, Codespaces, cloud agents, other IDEs/providers, and
-Windows are outside 1.0.0. See the [feature reference](docs/features.md) and
-[integration contracts](docs/tokenotch-integrations.md).
-VS Code lifecycle coverage targets the Local harness; Agent Host usage is
-separate telemetry, not a promise of lifecycle or attention parity.
-
-## Privacy and local data
-
-Tokenotch has no backend, analytics, or automatic crash reporting. Client content
-is discarded before retention. Optional archives stay in private `~/.tokenotch`
-storage; retaining one kind of data does not authorize another.
-
-See [privacy and retention](docs/tokenotch-privacy.md) and
-[setup, recovery, and uninstall](docs/support.md).
-Tokenotch uses its own data folder and preferences domain; it does not import
-data or settings from other applications.
-
-## Updates and support
-
-**Check for Updates** contacts GitHub only when selected and offers the official
-release page when a newer public stable version exists. Nothing is downloaded or
-installed automatically. Quit Tokenotch, replace the app in Applications, reopen,
-and follow any Connections repair/reload instructions.
-
-For troubleshooting, use **Settings > Privacy > Diagnostics** and review the
-report before sharing it. Never post prompts, credentials, transcripts, or
-private paths. See [support](docs/support.md) and [security reporting](SECURITY.md).
-
-## Build and contribute
-
-Use a coherent full Xcode toolchain (CI selects Xcode 16.4), Node 22.12+, and Python 3.
-Native builds/smoke executables also support matching Command Line Tools;
-XCTest requires full Xcode.
-
-```sh
-make metadata        # identities, versions, and updated-logo provenance
-make build           # fresh host-architecture development bundle
-make universal       # universal app and helper; still ad-hoc signed
-make test-ci         # full XCTest and release gate tests
-make smoke smoke-telemetry
-make smoke-history smoke-timeline smoke-notch  # native UI checks need a GUI session
-make smoke-notch NOTCH_SMOKE_ARGS=--onboarding # focused setup and connection UI checks
+```mermaid
+flowchart LR
+    subgraph mac["Your Mac"]
+        cli["Copilot CLI"]
+        vsc["VS Code"]
+        helper["Tokenotch helper<br/>keeps only numbers<br/>and model names"]
+        app["Tokenotch<br/>notch, Usage and History"]
+        cli -- "usage events" --> helper
+        vsc -- "usage events" --> helper
+        helper --> app
+    end
+    github["GitHub"] -- "official premium<br/>request quota" --> app
 ```
 
-The source logo is `docs/design/tokenotch-notch-logo.png` and the app icon source is
-`docs/design/tokenotch-logo-app-icon.png`. After changing either, run
-`python3 scripts/make-brand-assets.py` (Pillow and macOS iconutil required).
-Builds refuse stale app/menu/Settings/companion artwork.
+1. **Your Copilot tools report activity.** While you work, Copilot CLI and
+   VS Code emit small usage events on your Mac, such as "this call used model X
+   and N tokens". After you approve it in setup, Tokenotch connects a small
+   extension to the CLI and a local listener to VS Code to receive them.
+2. **Tokenotch keeps the numbers and drops the rest.** A local helper strips
+   everything except token counts, model names, timings and hashed session IDs. Your prompts, code, responses and file names are thrown away before
+   anything is saved. Tokenotch does not read your log files or chat transcripts.
+3. **The numbers become stats.** Tokenotch adds the numbers up per session, per
+   model and per day, and shows them in the notch. If you turn on history, daily
+   totals are saved in a private folder on your Mac.
 
-See [contributing](CONTRIBUTING.md) and the
-[release runbook](docs/releasing.md). `make release` defaults to unsigned public
-installers and requires the owned repository, a clean tagged tree, matching
-metadata, release notes, and passing build/installer checks. Apple credentials
-and the signed-release acceptance record are required only with
-`make release RELEASE_ARGS=--signed`. Nothing is published by local packaging.
+### Where each number comes from
 
-Documentation-only changes need no Xcode. Follow the locked tooling setup in
-[contributing](CONTRIBUTING.md#prerequisites), then run `make docs-check`.
+| Number | Source | Accuracy |
+| --- | --- | --- |
+| **Premium requests used** | 🟢 **Official**: reported by GitHub through the official Copilot CLI after you sign in, refreshed every minute | Matches your GitHub account |
+| **Tokens, models, calls, response time** | 🟡 **Local estimate**: counted from events seen on this Mac while Tokenotch is running | Can be incomplete |
+| **Session state and context** | 🟡 **Local**: reported by the Copilot client running each session | Live, may be marked stale |
 
-Tokenotch is Copyright (c) 2026 rottathiago and released under the MIT License.
-It includes MIT-licensed code, Copyright (c) 2026 Vinz. The original
-copyright and permission notice are preserved in [LICENSE](LICENSE) and
-distributed with the app and companion.
+> [!IMPORTANT]
+> **GitHub is the source of truth for your usage, limits and billing.** We
+> strongly recommend checking your official numbers on GitHub; see
+> [monitoring your premium requests](https://docs.github.com/en/copilot/how-tos/manage-and-track-spending/monitor-premium-requests).
+> Tokenotch's token and model stats come from what it observes locally, **not**
+> from GitHub's official usage pages. Anything you do while Tokenotch is closed,
+> on another computer, or in an unsupported tool is not counted, and it cannot
+> be filled in later. **Start Tokenotch before you start coding** to get the
+> most complete picture.
+
+## Tokenotch vs. checking manually
+
+| | Checking manually | With Tokenotch |
+| --- | --- | --- |
+| **Where you look** | Open a browser and find the usage page | Glance at the notch |
+| **Tokens per model** | Hard to compare across sessions | Input, output and cache per model |
+| **Several agents at once** | Switch between terminals and windows | Every session in one list, with state |
+| **Knowing when you're needed** | Keep checking each window | Notch alert and optional notification |
+| **Context window** | Ask each session | Live bar under each session |
+| **Trends over time** | Not available locally | Optional daily history and model share |
+| **Official billing and limits** | ✅ Source of truth | Shows GitHub's premium request quota; always confirm on GitHub |
+
+## Get started
+
+1. **Download** [Tokenotch.dmg](https://github.com/rottathiago/tokenotch/releases/latest/download/Tokenotch.dmg)
+   and drag **Tokenotch** into **Applications**.
+2. **Open it.** Releases are currently unsigned, so macOS may block the first
+   launch. If you trust the download, go to **System Settings > Privacy &
+   Security** and choose **Open Anyway**
+   ([why?](docs/support.md#unsigned-downloads)).
+3. **Follow the setup guide** to connect Copilot CLI, VS Code or both, then
+   start coding. Your numbers appear as soon as data arrives.
+
+Requires macOS 15 or later on Apple Silicon or Intel. Full instructions,
+including the PKG installer, updates and uninstalling, are in
+[Getting started](docs/getting-started.md) and [Support](docs/support.md).
+
+## Privacy
+
+Tokenotch has **no backend, no analytics and no automatic crash reporting**. Prompts,
+code and responses are discarded before anything is saved, and every optional
+feature (history, timelines, notifications, account quota) is off until you turn
+it on. Read the details in [Privacy and retention](docs/tokenotch-privacy.md).
+
+## Roadmap and updates
+
+Tokenotch is actively developed and **will be updated as new features ship**.
+On the way:
+
+- 🪟 **Windows port**: Tokenotch beyond the Mac.
+- 🔌 **More providers**: support for more AI coding assistants and tools.
+
+⭐ **Star** the repo and choose **Watch > Custom > Releases** to hear about each
+new version. You can also use **Check for Updates** in the app at any time.
+
+## Contributing
+
+Contributions of all sizes are welcome: bug reports, ideas, docs and code.
+
+- 🐛 **Found a bug or have an idea?** [Open an issue](https://github.com/rottathiago/tokenotch/issues/new/choose).
+- 📝 **Docs changes** don't need Xcode; just run `make docs-check`.
+- 🛠️ **Code changes**: build with `make build` and test with `make test`.
+
+Start with the [contributing guide](CONTRIBUTING.md), the
+[feature reference](docs/features.md) and [release readiness](TASKS.md).
+Please report security issues privately as described in [SECURITY.md](SECURITY.md).
+
+---
+
+<sub>Tokenotch is an independent project and is not affiliated with or endorsed
+by GitHub or Microsoft. Copyright (c) 2026 rottathiago, released under the
+[MIT License](LICENSE). Includes MIT-licensed code, Copyright (c) 2026 Vinz;
+the original copyright and permission notice are preserved in [LICENSE](LICENSE)
+and distributed with the app and companion.</sub>

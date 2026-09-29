@@ -132,16 +132,12 @@ No CLA or DCO is required; contributions are provided under this repository's
 [MIT license](LICENSE). Submit only material you have the right to contribute,
 and retain upstream copyright and third-party notices.
 
-`@rottathiago` is the sole code owner. Contributor PRs require the owner's
-approval, passing native/documentation checks, and resolved review discussions.
-Other reviews are welcome but do not replace code-owner approval.
-
-GitHub does not allow authors to approve their own PRs. Owner-authored changes
-therefore use a documented, PR-only review exception: record why it is needed
-in the PR and merge only after all required checks pass. The exception must not
-bypass CI, permit direct pushes, or waive unresolved review discussions.
+`@rottathiago` is currently the sole maintainer and code owner, and is the only
+person who can merge. Every PR, including the maintainer's own, needs passing
+native/documentation checks and resolved review discussions before merging; no
+separate approving review is required while there is a single maintainer.
+Reviews from other contributors are welcome.
 See the [repository protection setup](docs/releasing.md#public-source-gate).
-A CODEOWNERS file alone does not enforce these rules.
 
 Be respectful, constructive and mindful of privacy. A Code of Conduct and
 verified private conduct-reporting route are follow-up work, not blockers for
@@ -158,7 +154,9 @@ not replace staged-diff review or a history-aware exposure assessment.
 
 Brand sources are `docs/design/tokenotch-notch-logo.png` and
 `docs/design/tokenotch-logo-app-icon.png`. Regenerate with
-`python3 scripts/make-brand-assets.py`; keep app/companion assets consistent.
+`python3 scripts/make-brand-assets.py` (Pillow and macOS `iconutil` required);
+keep app/companion assets consistent. Builds refuse stale app, menu, Settings
+and companion artwork.
 Hashes establish correspondence, not distribution rights.
 
 See [releasing](docs/releasing.md) for public unsigned releases and optional signed

@@ -31,13 +31,13 @@ Synthetic fixtures and successful cross-builds do not establish support.
   remaining naming or distribution decisions.
 - Prepare an actionable private security route and verify GitHub vulnerability
   reporting at public cutover.
-- Verify branch/tag protections, native/documentation checks, contributor review
-  and an explicit auditable process for owner-authored changes.
+- Verify branch/tag protections and native/documentation checks.
 - Keep install/support/release links honest about what is actually available.
 
-The public repository now enforces separate required-CI and code-owner-review
-rulesets, owner-only version-tag creation and immutable version tags. The owner
-can bypass review for an owner-authored PR, not the required CI checks. Private
+The public repository enforces a required-CI and branch-integrity ruleset,
+owner-only version-tag creation and immutable version tags. While Tokenotch has a
+single maintainer, no approving review is required; the owner merges PRs after
+the required CI checks pass. Private
 vulnerability reporting is enabled. These safeguards do not certify a stable
 binary release.
 
