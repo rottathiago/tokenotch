@@ -1,5 +1,24 @@
 # Setup, recovery, and uninstall
 
+## Unsigned downloads
+
+Official GitHub Releases may offer unsigned DMG and PKG installers. Signing and
+Apple notarization are optional; the release notes identify the actual status,
+source revision and SHA-256 checksums. Only download installers from
+[the official release page](https://github.com/rottathiago/tokenotch/releases).
+
+macOS may refuse to open an unsigned installer or application. After trying to
+open it, if you trust that download, go to **System Settings > Privacy & Security**
+and choose **Open Anyway** where available. Confirm the per-app approval, then
+open Tokenotch from Applications. See [Apple's instructions](https://support.apple.com/en-us/102445).
+Managed Macs may prohibit this; contact your administrator rather than bypassing
+their policy. Do not disable Gatekeeper, remove quarantine, or override warnings
+that software contains malware or is damaged.
+
+An unsigned release's app is ad-hoc signed but has no verified Apple Developer ID
+and has not been notarized. A regular GitHub release can still be offered by
+**Check for Updates**; that lookup is not an Apple trust or security assessment.
+
 ## Connections
 
 First-run onboarding includes the client-specific guides directly. Choose Copilot
@@ -86,8 +105,9 @@ reset saved data to bypass a startup error.
 ## Updating and uninstalling
 
 Updates are manual. Quit Tokenotch before replacing the application. Reopen it and
-follow any Connections repair/reload instructions. Do not use Gatekeeper
-bypasses. A failed update check is not a claim that the installed build is current.
+follow any Connections repair/reload instructions. For unsigned downloads, follow
+the per-app approval guidance above; do not disable Gatekeeper or remove quarantine.
+A failed update check is not a claim that the installed build is current.
 If Tokenotch reports that no public stable release is available, the repository may
 still be private or its release may still be a draft. Account sign-in does not
 grant the updater access to private releases; no repository token is required or

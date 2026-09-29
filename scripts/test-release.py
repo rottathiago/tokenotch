@@ -4,12 +4,14 @@ import contextlib
 import io
 import json
 import pathlib
+import plistlib
 import runpy
+import shlex
 import shutil
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 release = runpy.run_path(str(ROOT / "scripts/release.py"))
@@ -45,9 +47,21 @@ class ReleaseGates(unittest.TestCase):
         self.evidence["sourceRevision"] = "b" * 40
         self.assertTrue(self.errors())
 
-    def test_unrecorded_acceptance_blocks_release(self):
+    def test_unrecorded_acceptance_blocks_signed_release(self):
         evidence = json.loads((ROOT / "config/ReleaseAcceptance.json").read_text())
         self.assertTrue(self.errors(evidence))
+
+    def test_unsigned_releases_do_not_require_signed_acceptance(self):
+        self.assertEqual(release["gate_errors"](
+            self.config, None, self.revision, self.config["repository"], False, signed=False), [])
+        for revision, repository, dirty in [
+            ("", self.config["repository"], False),
+            ("not-a-commit", self.config["repository"], False),
+            (self.revision, "other/tokenotch", False),
+            (self.revision, self.config["repository"], True),
+        ]:
+            self.assertTrue(release["gate_errors"](
+                self.config, None, revision, repository, dirty, signed=False))
 
     def test_acceptance_template_matches_current_gates(self):
         evidence = json.loads((ROOT / "config/ReleaseAcceptance.json").read_text())
@@ -93,13 +107,156 @@ class ReleaseGates(unittest.TestCase):
                 with patch.dict(release["main"].__globals__, run=run,
                                 repository_name=lambda: self.config["repository"]), \
                      patch.dict("os.environ", environment), \
-                     patch("sys.argv", ["release.py", "--check", "--evidence", str(evidence)]), \
+                     patch("sys.argv", ["release.py", "--signed", "--check", "--evidence", str(evidence)]), \
                      contextlib.redirect_stdout(io.StringIO()):
                     if tag == "v" + self.config["version"]:
                         release["main"]()
                     else:
                         with self.assertRaisesRegex(ValueError, "tag must exactly match"):
                             release["main"]()
+
+    def test_unsigned_preflight_needs_no_apple_environment_or_evidence_file(self):
+        for tag in ["v" + self.config["version"], "v0.0.0"]:
+            def run(*args, capture=False):
+                if args == ("git", "rev-parse", "HEAD"):
+                    return self.revision
+                if args == ("git", "status", "--porcelain"):
+                    return ""
+                if args == ("git", "describe", "--tags", "--exact-match"):
+                    return tag
+                self.assertEqual(args[0], "python3", "Preflight must not build or sign")
+            with tempfile.TemporaryDirectory(prefix="tokenotch-unsigned-check-") as temporary, \
+                 patch.dict(release["main"].__globals__, run=run,
+                            repository_name=lambda: self.config["repository"]), \
+                 patch.dict("os.environ", {}, clear=True), \
+                 patch("sys.argv", ["release.py", "--check", "--evidence", str(pathlib.Path(temporary) / "missing.json")]), \
+                 contextlib.redirect_stdout(io.StringIO()) as output:
+                if tag == "v" + self.config["version"]:
+                    release["main"]()
+                    self.assertIn("Unsigned release prerequisites passed", output.getvalue())
+                else:
+                    with self.assertRaisesRegex(ValueError, "tag must exactly match"):
+                        release["main"]()
+
+    def test_signed_preflight_still_rejects_missing_credentials(self):
+        def run(*args, capture=False):
+            if args == ("git", "rev-parse", "HEAD"):
+                return self.revision
+            if args == ("git", "status", "--porcelain"):
+                return ""
+            self.fail("Signing prerequisites must be checked before building")
+        with patch.dict(release["main"].__globals__, run=run,
+                        repository_name=lambda: self.config["repository"]), \
+             patch.dict("os.environ", {}, clear=True), \
+             patch("sys.argv", ["release.py", "--signed", "--check"]):
+            with self.assertRaises(ValueError) as failure:
+                release["main"]()
+            self.assertIn("Acceptance is missing", str(failure.exception))
+            self.assertIn("TOKENOTCH_SIGNING_IDENTITY", str(failure.exception))
+            self.assertIn("TOKENOTCH_INSTALLER_IDENTITY", str(failure.exception))
+            self.assertIn("TOKENOTCH_NOTARY_PROFILE", str(failure.exception))
+
+    def test_unsigned_packaging_keeps_verification_without_apple_services(self):
+        with tempfile.TemporaryDirectory(prefix="tokenotch-unsigned-release-") as temporary:
+            root = pathlib.Path(temporary)
+            for directory in ["config", "docs/releases", "integrations/VSCode", "build/Tokenotch.app/Contents"]:
+                (root / directory).mkdir(parents=True)
+            (root / "config/Release.json").write_text(json.dumps(self.config))
+            (root / f"docs/releases/{self.config['version']}.md").write_text("# Tokenotch\n\nFixture notes.\n")
+            (root / "integrations/VSCode/package-lock.json").write_text(json.dumps({"packages": {}}))
+            (root / "build/Tokenotch.app/Contents/Info.plist").write_bytes(
+                plistlib.dumps({"TokenotchDistributionChannel": "development"}))
+            commands = []
+
+            def run(*args, capture=False):
+                args = tuple(str(arg) for arg in args)
+                commands.append(args)
+                if args == ("git", "rev-parse", "HEAD"):
+                    return self.revision
+                if args == ("git", "status", "--porcelain"):
+                    return ""
+                if args == ("git", "describe", "--tags", "--exact-match"):
+                    return "v" + self.config["version"]
+                if args[0] == "ditto":
+                    shutil.copytree(args[1], args[2])
+                if args[:2] == ("python3", "scripts/release-config.py") and "--plist" in args:
+                    path = pathlib.Path(args[args.index("--plist") + 1])
+                    path.write_bytes(plistlib.dumps({
+                        "TokenotchDistributionChannel": args[args.index("--distribution") + 1],
+                    }))
+
+            def build(config, app, output, *args, identity=None, keychain=None):
+                self.assertIsNone(identity)
+                self.assertIsNone(keychain)
+                self.assertEqual(plistlib.loads((app / "Contents/Info.plist").read_bytes())[
+                    "TokenotchDistributionChannel"], "release")
+                if output.suffix == ".pkg":
+                    self.assertEqual(args, ("release",))
+                output.write_bytes(b"synthetic installer")
+
+            def verify(config, output, channel):
+                self.assertEqual(channel, "release")
+                self.assertTrue(output.is_file())
+
+            installers = release["installers"]
+            notarize = Mock(side_effect=AssertionError("Unsigned packaging must not call Apple notarization"))
+            with patch.dict(release["main"].__globals__, ROOT=root, run=run, notarize=notarize,
+                            repository_name=lambda: self.config["repository"]), \
+                 patch.object(installers, "build_dmg", side_effect=build) as dmg, \
+                 patch.object(installers, "build_pkg", side_effect=build) as pkg, \
+                 patch.object(installers, "verify_dmg", side_effect=verify) as verify_dmg, \
+                 patch.object(installers, "verify_pkg", side_effect=verify) as verify_pkg, \
+                 patch.dict("os.environ", {"TOKENOTCH_SIGNING_KEYCHAIN": "must-not-be-used"}, clear=True), \
+                 patch("sys.argv", ["release.py"]), contextlib.redirect_stdout(io.StringIO()):
+                release["main"]()
+                dmg.assert_called_once()
+                pkg.assert_called_once()
+                verify_dmg.assert_called_once()
+                verify_pkg.assert_called_once()
+                notarize.assert_not_called()
+                with self.assertRaisesRegex(ValueError, "already exists"):
+                    release["main"]()
+                self.assertEqual(dmg.call_count, 1, "Existing installers must not be overwritten")
+            self.assertIn(("make", "test-ci", "smoke", "smoke-telemetry",
+                           "smoke-history", "smoke-timeline", "smoke-notch"), commands)
+            self.assertIn(("make", "universal"), commands)
+            signatures = [args for args in commands if args[:2] == ("codesign", "--force")]
+            self.assertEqual(len(signatures), 2)
+            self.assertTrue(signatures[0][-1].endswith("/Contents/Helpers/TokenotchHook"))
+            self.assertTrue(signatures[1][-1].endswith("/Tokenotch.app"))
+            for signature in signatures:
+                self.assertEqual(signature[signature.index("--sign") + 1], "-")
+                self.assertNotIn("--timestamp", signature)
+                self.assertNotIn("--keychain", signature)
+            self.assertTrue(any(args[:4] == ("codesign", "--verify", "--deep", "--strict") for args in commands))
+            self.assertFalse(any("spctl" in args or "notarytool" in args or "stapler" in args for args in commands))
+            output = root / "build/releases"
+            inventory = json.loads((output / f"Tokenotch-{self.config['version']}-inventory.json").read_text())
+            self.assertEqual(inventory["signing"], "ad-hoc")
+            self.assertIs(inventory["notarized"], False)
+            self.assertIsNone(inventory["signingTeam"])
+            self.assertIsNone(inventory["acceptance"])
+            self.assertEqual(inventory["sourceRevision"], self.revision)
+            self.assertEqual(set(inventory["artifacts"]), {"Tokenotch.dmg", "Tokenotch.pkg"})
+            notes = (output / "release-notes.md").read_text()
+            self.assertIn("unsigned and have not been notarized", notes)
+            self.assertIn(self.revision, notes)
+            for name, digest in inventory["artifacts"].items():
+                self.assertIn(f"{digest}  {name}", notes)
+                self.assertEqual((output / f"{name}.sha256").read_text().strip(), f"{digest}  {name}")
+
+    def test_workflow_defaults_to_regular_unsigned_releases_with_two_assets(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        self.assertIn("type: boolean\n        default: false", workflow)
+        self.assertIn("if: ${{ !inputs.signed }}\n        run: make release", workflow)
+        self.assertIn("make release RELEASE_ARGS=--signed", workflow)
+        command = shlex.split(workflow[workflow.index('gh release create "$RELEASE_TAG"'):].replace("\\\n", ""))
+        self.assertIn("--verify-tag", command)
+        self.assertIn("--draft", command)
+        self.assertIn("--prerelease=false", command)
+        self.assertEqual(command[command.index("--notes-file") + 1], "build/releases/release-notes.md")
+        self.assertEqual(command[-2:], ["build/releases/Tokenotch.dmg", "build/releases/Tokenotch.pkg"])
+        self.assertFalse(any(".sha256" in part or "-inventory.json" in part for part in command))
 
 
 class ReleaseMetadata(unittest.TestCase):

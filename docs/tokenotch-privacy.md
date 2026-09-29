@@ -367,7 +367,11 @@ transcripts, tokens, prompt payloads, private paths or full environment dumps.
 
 ## Distribution boundaries
 
-Development builds are ad-hoc signed, not notarized. The configured independent
+Development builds and unsigned public releases are ad-hoc signed, not notarized.
+Apple Developer ID signing and notarization are optional, not requirements for
+regular GitHub releases. Release notes disclose actual signing status, source
+revision and checksums; the release channel is not a trust assessment.
+The configured independent
 identity is `io.github.rottathiago.tokenotch`, with repository `rottathiago/tokenotch`
 and companion `rottathiago.tokenotch-vscode`. Configuration does not establish
 signing, publisher registration, trademark clearance or distribution approval.
@@ -375,9 +379,10 @@ There is no automatic updater or inherited updater key/feed. No download should
 be presented as an approved enterprise/Microsoft release. Upstream MIT attribution
 is retained; archived proposals are not current product claims.
 
-Customer release additionally needs the approved usage/auth contract, name
-clearance, both live-client matrices, resource/privacy/security/accessibility
-reviews, supported OS/architecture coverage, dependency/SBOM inventory, signed
-installers and documented update/rollback ownership. Full enterprise deployment
-and AI-credit billing are outside 1.0.0. See [the release runbook](releasing.md)
-for separate source-publication and signed-artifact gates.
+Public unsigned releases still require owned source, licensing, required CI,
+matching version tags, installer verification and honest compatibility/support
+claims. Continue collecting live-client, resource/privacy/security/accessibility
+and OS/architecture evidence; unsigned publication does not attest to unrecorded
+results. The optional signed path retains its exact-revision acceptance gates.
+Full enterprise deployment and AI-credit billing are outside 1.0.0. See
+[the release runbook](releasing.md) for unsigned publication and optional signing.

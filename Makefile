@@ -89,4 +89,4 @@ package:
 	python3 scripts/package.py $(PACKAGE_ARGS)
 
 release:
-	python3 scripts/release.py
+	python3 scripts/release.py $(RELEASE_ARGS)

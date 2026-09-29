@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed Developer ID packaging. Never publishes a release."""
+"""Build unsigned public installers, or opt into Developer ID signing. Never publishes."""
 import argparse
 import importlib.util
 import json
@@ -27,17 +27,20 @@ def run(*args, capture=False):
     return result.stdout.strip() if capture else None
 
 
-def gate_errors(config, evidence, revision, repository, dirty):
+def gate_errors(config, evidence, revision, repository, dirty, signed=True):
     errors = []
     if repository != config["repository"]:
         errors.append("Release must run from the configured owned repository.")
     if dirty:
         errors.append("Release requires a clean committed source tree.")
-    if not re.fullmatch(r"[0-9a-f]{40}", revision) or evidence.get("sourceRevision") != revision:
-        errors.append("Acceptance evidence must name the exact source revision being released.")
-    for gate in GATES:
-        if evidence.get(gate) is not True:
-            errors.append(f"Acceptance is missing: {gate}")
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        errors.append("Release requires an exact committed source revision.")
+    if signed:
+        if evidence.get("sourceRevision") != revision:
+            errors.append("Acceptance evidence must name the exact source revision being released.")
+        for gate in GATES:
+            if evidence.get(gate) is not True:
+                errors.append(f"Acceptance is missing: {gate}")
     return errors
 
 
@@ -71,39 +74,44 @@ def release_notes(config):
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--signed", action="store_true",
+                        help="require Developer ID signing, notarization and signed-release acceptance")
     parser.add_argument("--evidence", type=pathlib.Path,
+                        help="acceptance record used only with --signed",
                         default=pathlib.Path(os.environ.get("TOKENOTCH_RELEASE_EVIDENCE", ROOT / "config/ReleaseAcceptance.json")))
     args = parser.parse_args()
     config = json.loads((ROOT / "config/Release.json").read_text())
-    evidence = json.loads(args.evidence.read_text())
+    evidence = json.loads(args.evidence.read_text()) if args.signed else None
     revision = run("git", "rev-parse", "HEAD", capture=True)
     dirty = bool(run("git", "status", "--porcelain", capture=True))
-    errors = gate_errors(config, evidence, revision, repository_name(), dirty)
+    errors = gate_errors(config, evidence, revision, repository_name(), dirty, signed=args.signed)
     identity = os.environ.get("TOKENOTCH_SIGNING_IDENTITY", "")
     team = os.environ.get("TOKENOTCH_TEAM_ID", "")
     installer_identity = os.environ.get("TOKENOTCH_INSTALLER_IDENTITY", "")
     keychain = os.environ.get("TOKENOTCH_SIGNING_KEYCHAIN") or None
-    if not re.fullmatch(r"[A-Fa-f0-9]{40}", identity):
-        errors.append("Set TOKENOTCH_SIGNING_IDENTITY to an owned Developer ID Application certificate fingerprint.")
-    if not re.fullmatch(r"[A-Fa-f0-9]{40}", installer_identity):
-        errors.append("Set TOKENOTCH_INSTALLER_IDENTITY to an owned Developer ID Installer certificate fingerprint.")
-    if not re.fullmatch(r"[A-Z0-9]{10}", team):
-        errors.append("Set TOKENOTCH_TEAM_ID to the verified Apple developer team.")
-    if not os.environ.get("TOKENOTCH_NOTARY_PROFILE"):
-        errors.append("Configure a notarytool keychain profile and TOKENOTCH_NOTARY_PROFILE.")
+    if args.signed:
+        if not re.fullmatch(r"[A-Fa-f0-9]{40}", identity):
+            errors.append("Set TOKENOTCH_SIGNING_IDENTITY to an owned Developer ID Application certificate fingerprint.")
+        if not re.fullmatch(r"[A-Fa-f0-9]{40}", installer_identity):
+            errors.append("Set TOKENOTCH_INSTALLER_IDENTITY to an owned Developer ID Installer certificate fingerprint.")
+        if not re.fullmatch(r"[A-Z0-9]{10}", team):
+            errors.append("Set TOKENOTCH_TEAM_ID to the verified Apple developer team.")
+        if not os.environ.get("TOKENOTCH_NOTARY_PROFILE"):
+            errors.append("Configure a notarytool keychain profile and TOKENOTCH_NOTARY_PROFILE.")
     if errors:
         raise ValueError("\n".join(errors))
     run("python3", "scripts/release-config.py")
     run("python3", "scripts/make-brand-assets.py", "--check")
     run("python3", "scripts/check-project.py")
-    release_notes(config)
+    notes = release_notes(config)
     tag = "v" + config["version"]
     if run("git", "describe", "--tags", "--exact-match", capture=True) != tag:
         raise ValueError("Release tag must exactly match the configured version.")
     if args.check:
-        print("Release prerequisites are recorded; signing and artifact acceptance still run during packaging.")
+        mode = "Developer ID" if args.signed else "Unsigned"
+        print(f"{mode} release prerequisites passed. Packaging and installer verification have not run.")
         return
     run("make", "test-ci", "smoke", "smoke-telemetry", "smoke-history", "smoke-timeline", "smoke-notch")
     run("make", "universal")
@@ -122,41 +130,51 @@ def main():
             "--distribution", "release")
         run("python3", "scripts/verify-bundle.py", str(app), "--universal", "--release")
         for target in [app / "Contents/Helpers/TokenotchHook", app]:
-            command = ["codesign", "--force", "--timestamp", "--options", "runtime", "--sign", identity]
-            if keychain:
+            command = ["codesign", "--force", "--options", "runtime", "--sign", identity if args.signed else "-"]
+            if args.signed:
+                command += ["--timestamp"]
+            if args.signed and keychain:
                 command += ["--keychain", keychain]
             run(*command, str(target))
-        detail = subprocess.run(["codesign", "-dv", "--verbose=4", str(app)], check=True,
-                                capture_output=True, text=True).stderr
-        if f"TeamIdentifier={team}" not in detail or "Authority=Developer ID Application:" not in detail:
-            raise ValueError("Signed application does not have the required Developer ID team identity.")
+        if args.signed:
+            detail = subprocess.run(["codesign", "-dv", "--verbose=4", str(app)], check=True,
+                                    capture_output=True, text=True).stderr
+            if f"TeamIdentifier={team}" not in detail or "Authority=Developer ID Application:" not in detail:
+                raise ValueError("Signed application does not have the required Developer ID team identity.")
         run("codesign", "--verify", "--deep", "--strict", str(app))
-        archive = pathlib.Path(temporary) / "Tokenotch.zip"
-        run("ditto", "-c", "-k", "--keepParent", str(app), str(archive))
-        notarize(archive)
-        run("xcrun", "stapler", "staple", str(app))
-        run("xcrun", "stapler", "validate", str(app))
-        run("spctl", "--assess", "--type", "execute", "--verbose=2", str(app))
-        installers.build_dmg(config, app, dmg, identity=identity, keychain=keychain)
-        notarize(dmg)
-        run("xcrun", "stapler", "staple", str(dmg))
-        run("xcrun", "stapler", "validate", str(dmg))
-        run("spctl", "--assess", "--type", "open", "--context", "context:primary-signature", str(dmg))
+        if args.signed:
+            archive = pathlib.Path(temporary) / "Tokenotch.zip"
+            run("ditto", "-c", "-k", "--keepParent", str(app), str(archive))
+            notarize(archive)
+            run("xcrun", "stapler", "staple", str(app))
+            run("xcrun", "stapler", "validate", str(app))
+            run("spctl", "--assess", "--type", "execute", "--verbose=2", str(app))
+        installers.build_dmg(config, app, dmg, identity=identity if args.signed else None,
+                             keychain=keychain if args.signed else None)
+        if args.signed:
+            notarize(dmg)
+            run("xcrun", "stapler", "staple", str(dmg))
+            run("xcrun", "stapler", "validate", str(dmg))
+            run("spctl", "--assess", "--type", "open", "--context", "context:primary-signature", str(dmg))
         installers.verify_dmg(config, dmg, "release")
-        installers.build_pkg(config, app, pkg, "release", identity=installer_identity, keychain=keychain)
-        signature = run("pkgutil", "--check-signature", str(pkg), capture=True)
-        if "Developer ID Installer:" not in signature or f"({team})" not in signature:
-            raise ValueError("Installer package does not have the required Developer ID Installer team identity.")
-        notarize(pkg)
-        run("xcrun", "stapler", "staple", str(pkg))
-        run("xcrun", "stapler", "validate", str(pkg))
-        run("spctl", "--assess", "--type", "install", "--verbose=2", str(pkg))
+        installers.build_pkg(config, app, pkg, "release", identity=installer_identity if args.signed else None,
+                             keychain=keychain if args.signed else None)
+        if args.signed:
+            signature = run("pkgutil", "--check-signature", str(pkg), capture=True)
+            if "Developer ID Installer:" not in signature or f"({team})" not in signature:
+                raise ValueError("Installer package does not have the required Developer ID Installer team identity.")
+            notarize(pkg)
+            run("xcrun", "stapler", "staple", str(pkg))
+            run("xcrun", "stapler", "validate", str(pkg))
+            run("spctl", "--assess", "--type", "install", "--verbose=2", str(pkg))
         installers.verify_pkg(config, pkg, "release")
     digests = {artifact.name: installers.write_checksum(artifact) for artifact in [dmg, pkg]}
     lock = json.loads((ROOT / "integrations/VSCode/package-lock.json").read_text())
     inventory = {
         "product": config, "sourceRevision": revision, "architectures": ["arm64", "x86_64"],
-        "artifactSHA256": digests[dmg.name], "artifacts": digests, "signingTeam": team,
+        "artifactSHA256": digests[dmg.name], "artifacts": digests,
+        "signing": "developer-id" if args.signed else "ad-hoc",
+        "notarized": args.signed, "signingTeam": team if args.signed else None,
         "acceptance": evidence,
         "swiftPackages": [], "runtime": "macOS system frameworks; Node built-ins in the companion",
         "buildDependencies": [
@@ -166,7 +184,14 @@ def main():
         ],
     }
     (output / f"Tokenotch-{config['version']}-inventory.json").write_text(json.dumps(inventory, indent=2) + "\n")
-    print(f"Verified release artifacts: {output}. Nothing has been published.")
+    verification = ("The app and installers are Developer ID signed and notarized by Apple."
+                    if args.signed else installers.unsigned_notice(config))
+    checksums = "\n".join(f"{digest}  {name}" for name, digest in digests.items())
+    (output / "release-notes.md").write_text(
+        notes.read_text().rstrip() + f"\n\n## Installer verification\n\n{verification}\n\n"
+        f"Source revision: `{revision}`\n\n### SHA-256\n\n```text\n{checksums}\n```\n")
+    mode = "Developer ID signed and notarized" if args.signed else "Unsigned and not notarized"
+    print(f"{mode} release artifacts: {output}. Installer structure verified; nothing has been published.")
 
 
 if __name__ == "__main__":

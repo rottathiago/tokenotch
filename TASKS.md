@@ -1,9 +1,10 @@
 # Tokenotch release readiness
 
 Tokenotch is preparing its independent Copilot-only macOS 1.0.0 release.
-Public source and development CI are available. Production installers and
-in-app installation remain a separate milestone.
-This is a readiness record, not certification that public-release gates passed.
+Public source and development CI are available. Regular unsigned DMG/PKG releases
+are allowed; Developer ID signing and notarization are optional. No binary release
+has been published yet, and in-app installation remains a separate milestone.
+This is a readiness record, not certification of unrecorded acceptance.
 The [feature reference](docs/features.md) describes implemented behavior and the
 [compatibility matrix](docs/compatibility.md) distinguishes targets from acceptance.
 
@@ -50,11 +51,25 @@ implementation phase. The [future update roadmap](docs/releasing.md#future-updat
 records the intended behavior; the current app still checks releases manually
 and cannot install an update.
 
-## Required before stable installers
+## Public unsigned installers
+
+Publish regular unsigned releases from the owned repository and a clean matching
+version tag after required CI and installer checks pass. Keep release notes,
+source revision, checksums, support routes and signing disclosures accurate.
+The release workflow creates a regular draft; the owner reviews and publishes it
+with only the DMG and PKG attached. The existing manual updater can offer that
+regular release without Apple signing.
+
+Apple credentials and the acceptance record below are not requirements for this
+unsigned path. Do not imply that public availability or passing CI certifies
+untested client, hardware, accessibility or security behavior.
+
+## Broader acceptance and optional signed installers
 
 `config/ReleaseAcceptance.json` intentionally keeps approvals false until
-evidence is collected. The owner must approve an external acceptance record
-for the exact committed revision being tagged.
+evidence is collected. It is required by the optional Developer ID release path,
+not by unsigned publication. Keep recording real acceptance for the exact source
+revision rather than turning flags on to satisfy a build.
 
 - Record actual CLI, VS Code/Copilot extension, macOS and architecture versions.
   Accept required lifecycle delivery for both local clients and report optional
@@ -69,7 +84,7 @@ for the exact committed revision being tagged.
   ownership/licensing approval. Automated docs checks do not satisfy these gates.
 - Configure owned Developer ID Application/Installer identities, notarization and
   an approval-protected release environment. Verify the exact signed draft
-  installers on clean Macs before owner-authorized stable publication.
+  installers on clean Macs before owner-authorized signed publication.
 
 Use [the release runbook](docs/releasing.md) for ordering, evidence, required
 artifacts and failure handling. No current implementation-machine observation

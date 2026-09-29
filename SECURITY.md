@@ -8,6 +8,8 @@ security reports and conduct complaints require separate private routes.
 
 There is no accepted public 1.0.0 release yet. A configured workflow, passing
 tests or development build is not a security certification.
+Public unsigned releases are allowed and are covered by this reporting process.
+Signing and notarization are optional and do not replace security review.
 
 Use
 [GitHub private vulnerability reporting](https://github.com/rottathiago/tokenotch/security/advisories/new).
@@ -32,7 +34,9 @@ There is no guaranteed response time, bounty or external certification.
 
 ## Supported versions
 
-No stable version is currently declared supported. Before publishing 1.0.0, update
-this policy to identify the accepted stable version and its actual maintenance
-scope. Development builds are not supported production releases.
+No binary release has been published yet. Once available, the latest regular
+release is the target for security fixes, whether unsigned or Developer ID signed.
+Older releases and development snapshots may require an update to receive fixes.
+This is best-effort maintenance, not a security certification or response-time
+guarantee.
 See [release readiness](TASKS.md) and [releasing](docs/releasing.md).

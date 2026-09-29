@@ -53,15 +53,59 @@ non-relocatable, version-checked product archive that installs only to
 architecture, shows the MIT license, and runs no install scripts.
 
 Development installers stay on the `development` channel, ad-hoc signed and not
-notarized. They are for local or hands-on testing; copies downloaded through a
-browser are blocked by Gatekeeper and must never be published as releases.
+notarized. Sharing unsigned installers is allowed. For a regular public release,
+use the release packager below so the app carries the `release` channel and the
+artifacts have version/tag validation, release notes, checksums and an inventory.
+Downloaded unsigned copies may be blocked by Gatekeeper; disclose this rather
+than claiming they are Apple-verified.
 
-## Required external acceptance
+## Public unsigned releases (default)
+
+Apple signing and notarization are optional. Regular unsigned GitHub releases
+are supported by the existing **Check for Updates** lookup; they are not forced
+to be prereleases. That lookup opens the release page and does not verify Apple
+trust, download installers or install updates.
+
+Use the owned repository, a clean committed tree and a protected `v<version>`
+tag matching `config/Release.json`. Add version-specific release notes, require
+passing native/documentation CI, preserve licensing, and state compatibility
+limits honestly. No Apple credentials or `ReleaseAcceptance.json` attestations
+are required for unsigned packaging.
+
+```sh
+python3 scripts/release.py --check
+make release
+```
+
+The packager runs native regressions, builds the universal app/helper, stamps the
+public `release` channel, reapplies ad-hoc signatures, and verifies the DMG and
+PKG contents. It does not perform Developer ID signing, notarization, or claim
+Gatekeeper acceptance. Outputs in `build/releases/` include both installers,
+checksums, an inventory with `notarized: false`, and generated `release-notes.md`.
+Existing installer outputs are not silently overwritten. Local packaging never
+publishes.
+
+Dispatch **Prepare Tokenotch release** for the matching tag with **signed**
+unchecked (the default). No signing secrets are needed. The workflow creates a
+regular **draft**, attaches only `Tokenotch.dmg` and `Tokenotch.pkg`, and includes
+the source revision, SHA-256 checksums and explicit unsigned disclosure in its
+notes. Supporting files remain available in the workflow artifact, not as extra
+release attachments.
+
+Review the exact installers and their known limitations before owner-authorized
+publication. Publish the draft as a regular release, not a prerelease, to make it
+eligible for the manual updater. Unsigned downloads may need the normal per-app
+**Privacy & Security > Open Anyway** approval where allowed; see
+[support](support.md#unsigned-downloads). Do not disable Gatekeeper, strip
+quarantine, bypass managed-device policy or claim unperformed acceptance.
+
+## Optional signed-release acceptance
 
 `config/ReleaseAcceptance.json` intentionally contains false/unrecorded gates.
 Do not turn them true merely because synthetic tests or cross-builds pass.
 Collect real hardware/client, accessibility, upgrade/recovery, privacy/security, and
-performance evidence for the exact source revision.
+performance evidence for the exact source revision. This record gates the
+optional `--signed` release path, not unsigned public distribution.
 
 Create an external acceptance JSON file using that schema and set
 `sourceRevision` to the exact committed revision being tagged. Keeping the
@@ -78,7 +122,7 @@ release criteria; do not claim unrecorded results.
 
 ## Signing configuration
 
-Use an owned Developer ID Application certificate (app, helper, and DMG), a
+For optional signed releases, use an owned Developer ID Application certificate (app, helper, and DMG), a
 Developer ID Installer certificate (PKG), and a notarization account.
 Verify actual signing identities when preparing the release; documentation and
 configured identifiers do not prove certificate ownership. Never commit credentials.
@@ -98,8 +142,8 @@ to the repository configured in `config/Release.json`.
 Use a clean tree with a protected `v<version>` tag.
 
 ```sh
-python3 scripts/release.py --check
-make release
+python3 scripts/release.py --signed --check
+make release RELEASE_ARGS=--signed
 ```
 
 Packaging reruns the native/resource checks in `scripts/release.py`; documentation
@@ -126,8 +170,8 @@ channel. Never embed a repository token in the app to work around this.
 
 ### Public source gate
 
-The current milestone is public source and development CI, not production
-binaries. Source publication does not require Apple Developer enrollment or
+Public source and unsigned binary releases do not require Apple Developer
+enrollment. Source publication does not require
 pretending that signed installers or real hardware acceptance already exist.
 It does require truthful release status, verified distribution rights, required
 notices and working support/private security-reporting routes.
@@ -245,7 +289,7 @@ explicitly approved test feed before customer rollout. Existing source-built
 versions will need one manual installation of the first signed Sparkle-enabled
 version; they cannot acquire an updater they do not contain.
 
-### Signed artifact gate
+### Optional signed artifact gate
 
 Configure an approval-protected `release` environment and protected version
 tags in the owned repository. The manually dispatched workflow uses immutable
@@ -263,14 +307,17 @@ Environment secrets: `DEVELOPER_ID_P12_BASE64`, `DEVELOPER_ID_P12_PASSWORD`,
 Upload secrets through GitHub settings, never through source files or chat.
 Signing material is removed in an always-run cleanup step.
 
-Dispatch for the protected matching tag. The workflow creates only a **draft**
-release. Download that exact artifact on clean standard-user Macs, verify
+Dispatch for the protected matching tag with **signed** checked. The workflow
+loads the protected acceptance record and signing secrets only for this optional
+path and creates a regular **draft** release. Download that exact artifact on clean standard-user Macs, verify
 checksum, quarantined launch, installation, onboarding, upgrade/recovery, helper
 operation, and both supported architectures. The owner must approve public
 publication separately.
 
-After approval, publish the draft as a stable release with both notarized
-installers, their checksums, and the inventory. A user's **Check for Updates**
+After approval, publish the draft as a stable release with only the two notarized
+installers attached. Checksums and the source revision appear in its generated
+notes; the inventory and checksum files remain in the workflow artifact.
+A user's **Check for Updates**
 then compares that release's version and offers its official page; it does not
 poll, download, or install automatically. Verify this from an older signed build
 before announcing the release. For a first release with no older signed Tokenotch
