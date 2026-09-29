@@ -106,6 +106,10 @@ flowchart LR
    model and per day, and shows them in the notch. If you turn on history, daily
    totals are saved in a private folder on your Mac.
 
+Want the full picture? The [architecture overview](docs/architecture.md) walks
+through every step with diagrams and links to the code, so you can verify it
+yourself.
+
 ### Where each number comes from
 
 | Number | Source | Accuracy |
@@ -156,7 +160,8 @@ and [Support](docs/support.md).
 Tokenotch has **no backend, no analytics and no automatic crash reporting**. Prompts,
 code and responses are discarded before anything is saved, and every optional
 feature (history, timelines, notifications, account quota) is off until you turn
-it on. Read the details in [Privacy and retention](docs/tokenotch-privacy.md).
+it on. Read the details in [Privacy and retention](docs/tokenotch-privacy.md)
+and the [architecture overview](docs/architecture.md).
 
 ## Roadmap and updates
 
