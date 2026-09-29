@@ -18,9 +18,10 @@ GitHub or Microsoft.
 
 **Public source and unsigned distribution:** regular GitHub Releases may contain
 unsigned DMG and PKG installers. Apple Developer ID signing and notarization are
-optional, not publication requirements. No application release has been published
-yet; universal development builds are available from source. The download page
-will identify the installers' actual signing status and known limitations.
+optional, not publication requirements. Download availability, actual signing
+status and known limitations are recorded on the
+[official release page](https://github.com/rottathiago/tokenotch/releases).
+Universal development builds are also available from source.
 
 Contributions are welcome; start with [contributing](CONTRIBUTING.md).
 [Release readiness](TASKS.md) records what still blocks public source and
@@ -30,7 +31,7 @@ installer publication and optional signed-release acceptance.
 
 The intended distribution channel is
 [official GitHub Releases](https://github.com/rottathiago/tokenotch/releases).
-When a release is published, download either installer:
+Choose either installer from a published release:
 
 - **Tokenotch.dmg**: open it and drag **Tokenotch.app** onto **Applications**.
 - **Tokenotch.pkg**: open it and follow the installer; it places
