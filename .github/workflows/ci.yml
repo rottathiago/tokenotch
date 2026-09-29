@@ -1,6 +1,7 @@
 name: Tokenotch checks
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -9,7 +10,54 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      native: ${{ steps.classify.outputs.native }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify changed files
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # Native checks run unless every changed file is documentation-only.
+          native=true
+          case "$EVENT_NAME" in
+            pull_request) base="$PR_BASE" ;;
+            push) base="$PUSH_BEFORE" ;;
+            *) base="" ;;
+          esac
+          if [[ -n "$base" && ! "$base" =~ ^0+$ ]] && git cat-file -e "$base^{commit}" 2>/dev/null; then
+            changed="$(git diff --name-only "$base" HEAD)"
+            if [[ -n "$changed" ]]; then
+              native=false
+              while IFS= read -r file; do
+                case "$file" in
+                  docs/design/tokenotch-notch-logo.png|docs/design/tokenotch-logo-app-icon.png) native=true ;;
+                  docs/*|scripts/docs/*|.github/ISSUE_TEMPLATE/*|.github/PULL_REQUEST_TEMPLATE.md) ;;
+                  .github/CODEOWNERS|.github/workflows/docs.yml|.markdownlint-cli2.jsonc|lychee.toml) ;;
+                  */*) native=true ;;
+                  *.md) ;;
+                  *) native=true ;;
+                esac
+                echo "$file"
+              done <<< "$changed"
+            fi
+          fi
+          echo "Native checks required: $native"
+          echo "native=$native" >> "$GITHUB_OUTPUT"
   test:
+    needs: changes
+    # A skipped job satisfies the required check; classification failures still run everything.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.native != 'false') }}
     runs-on: macos-15
     timeout-minutes: 45
     env:
