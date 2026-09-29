@@ -110,9 +110,9 @@ flowchart LR
 
 | Number | Source | Accuracy |
 | --- | --- | --- |
-| **Premium requests used** | 🟢 **Official**: reported by GitHub through the official Copilot CLI after you sign in, refreshed every minute | Matches your GitHub account |
-| **Tokens, models, calls, response time** | 🟡 **Local estimate**: counted from events seen on this Mac while Tokenotch is running | Can be incomplete |
-| **Session state and context** | 🟡 **Local**: reported by the Copilot client running each session | Live, may be marked stale |
+| **Premium requests used** | **Official**: reported by GitHub through the official Copilot CLI after you sign in, refreshed every minute | Matches your GitHub account |
+| **Tokens, models, calls, response time** | **Local estimate**: counted from events seen locally while Tokenotch is running | Accurate when Tokenotch is running from the start of every Copilot session |
+| **Session state and context** | **Local**: reported by the Copilot client running each session | Live, may be marked stale |
 
 > [!IMPORTANT]
 > **GitHub is the source of truth for your usage, limits and billing.** We
