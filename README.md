@@ -28,7 +28,7 @@ VS Code, and get a nudge the moment a session needs you.
 <p>
   <a href="#why-tokenotch">Why Tokenotch</a> ·
   <a href="#how-it-works">How it works</a> ·
-  <a href="#get-started">Get started</a> ·
+  <a href="#requirements">Requirements</a> ·
   <a href="#roadmap-and-updates">Roadmap</a> ·
   <a href="#contributing">Contributing</a>
 </p>
@@ -136,20 +136,20 @@ flowchart LR
 | **Trends over time** | Not available locally | Optional daily history and model share |
 | **Official billing and limits** | ✅ Source of truth | Shows GitHub's premium request quota; always confirm on GitHub |
 
-## Get started
+## Requirements
 
-1. **Download** [Tokenotch.dmg](https://github.com/rottathiago/tokenotch/releases/latest/download/Tokenotch.dmg)
-   and drag **Tokenotch** into **Applications**.
-2. **Open it.** Releases are currently unsigned, so macOS may block the first
-   launch. If you trust the download, go to **System Settings > Privacy &
-   Security** and choose **Open Anyway**
-   ([why?](docs/support.md#unsigned-downloads)).
-3. **Follow the setup guide** to connect Copilot CLI, VS Code or both, then
-   start coding. Your numbers appear as soon as data arrives.
+| | Requirement | Notes |
+| :---: | --- | --- |
+| 💻 | **macOS 15 or later** | Apple Silicon or Intel |
+| 🤖 | **GitHub Copilot** | An active Copilot plan on your GitHub account |
+| ⌨️ | **GitHub Copilot CLI** and/or **VS Code** | At least one, installed on the same Mac. VS Code 1.138.0 or later |
+| 📊 | **Copilot CLI sign-in** *(optional)* | Needed only to show your official premium request usage; uses the Copilot CLI even if you code in VS Code |
 
-Requires macOS 15 or later on Apple Silicon or Intel. Full instructions,
-including the PKG installer, updates and uninstalling, are in
-[Getting started](docs/getting-started.md) and [Support](docs/support.md).
+Releases are currently unsigned, so macOS may block the first launch. If you
+trust the download, choose **Open Anyway** in **System Settings > Privacy &
+Security** ([why?](docs/support.md#unsigned-downloads)). Installation, setup,
+updates and uninstalling are covered in [Getting started](docs/getting-started.md)
+and [Support](docs/support.md).
 
 ## Privacy
 
