@@ -158,7 +158,9 @@ not replace staged-diff review or a history-aware exposure assessment.
 
 Brand sources are `docs/design/tokenotch-notch-logo.png` and
 `docs/design/tokenotch-logo-app-icon.png`. Regenerate with
-`python3 scripts/make-brand-assets.py`; keep app/companion assets consistent.
+`python3 scripts/make-brand-assets.py` (Pillow and macOS `iconutil` required);
+keep app/companion assets consistent. Builds refuse stale app, menu, Settings
+and companion artwork.
 Hashes establish correspondence, not distribution rights.
 
 See [releasing](docs/releasing.md) for public unsigned releases and optional signed

@@ -2,7 +2,7 @@
   "config": {
     "MD013": false,
     "MD024": { "siblings_only": true },
-    "MD033": { "allowed_elements": ["picture", "source", "img"] }
+    "MD033": { "allowed_elements": ["picture", "source", "img", "div", "p", "a", "br", "table", "tr", "td", "sub", "b"] }
   },
   "globs": [
     "**/*.{md,mdx,markdown}",
