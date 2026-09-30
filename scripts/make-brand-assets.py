@@ -37,14 +37,18 @@ def text_digest(path):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def relative_path(path):
+    return path.relative_to(ROOT).as_posix()
+
+
 def manifest():
     return {
-        "source": str(SOURCE.relative_to(ROOT)),
+        "source": relative_path(SOURCE),
         "sourceSHA256": digest(SOURCE),
-        "appIconSource": str(APP_ICON_SOURCE.relative_to(ROOT)),
+        "appIconSource": relative_path(APP_ICON_SOURCE),
         "appIconSourceSHA256": digest(APP_ICON_SOURCE),
         "generatorSHA256": text_digest(Path(__file__)),
-        "assets": {str(path.relative_to(ROOT)): digest(path) for path in ASSETS},
+        "assets": {relative_path(path): digest(path) for path in ASSETS},
     }
 
 
@@ -55,7 +59,7 @@ def check():
             raise ValueError("The source artwork or generated assets changed.")
     except (OSError, ValueError) as error:
         raise SystemExit(f"Brand assets are stale: {error} Run python3 scripts/make-brand-assets.py.")
-    print(f"All brand assets match {SOURCE.relative_to(ROOT)} and {APP_ICON_SOURCE.relative_to(ROOT)}.")
+    print(f"All brand assets match {relative_path(SOURCE)} and {relative_path(APP_ICON_SOURCE)}.")
 
 
 def content_box(image):
@@ -159,7 +163,7 @@ def main():
             icon.resize((points * 2, points * 2), Image.LANCZOS).save(iconset / f"icon_{points}x{points}@2x.png")
         subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(OUT / "Tokenotch.icns")], check=True)
     MANIFEST.write_text(json.dumps(manifest(), indent=2) + "\n")
-    print(f"Wrote brand assets to {OUT.relative_to(ROOT)} and integrations/VSCode/icon.png")
+    print(f"Wrote brand assets to {relative_path(OUT)} and integrations/VSCode/icon.png")
 
 
 if __name__ == "__main__":

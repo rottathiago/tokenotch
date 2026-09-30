@@ -29,6 +29,15 @@ class BrandAssetTests(unittest.TestCase):
             crlf.write_bytes(b"first\r\nsecond\r\n")
             self.assertEqual(brand.text_digest(lf), brand.text_digest(crlf))
 
+    def test_manifest_paths_use_portable_separators(self):
+        generated = brand.manifest()
+        self.assertEqual(generated["source"], "docs/design/tokenotch-notch-logo.png")
+        self.assertEqual(
+            generated["appIconSource"],
+            "docs/design/tokenotch-logo-app-icon.png",
+        )
+        self.assertTrue(all("\\" not in path for path in generated["assets"]))
+
     def test_content_box_ignores_transparent_noise(self):
         image = Image.new("RGBA", (10, 10))
         image.putpixel((0, 0), (255, 255, 255, 1))
