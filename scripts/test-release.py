@@ -10,6 +10,7 @@ import runpy
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -275,7 +276,7 @@ class ReleaseNotesChecks(unittest.TestCase):
 
     def run_notes(self, *args):
         return subprocess.run(
-            ["python3", str(self.root / "scripts/release.py"), "--check-notes", *args],
+            [sys.executable, str(self.root / "scripts/release.py"), "--check-notes", *args],
             cwd=self.root, check=False, capture_output=True, text=True,
             env={"PATH": os.environ["PATH"]})
 
@@ -347,13 +348,17 @@ class ReleaseMetadata(unittest.TestCase):
         for relative in ["config/Release.json", "config/Release.xcconfig",
                          "sources/Core/TokenotchProduct.swift", "integrations/VSCode/src/product.cjs",
                          "integrations/VSCode/package.json", "integrations/VSCode/package-lock.json",
+                         "windows/config/release.json", "windows/config/desktop.json",
+                         "windows/config/minimum-build.nsh",
+                         "windows/core/src/product.rs", "windows/desktop/src/product.js",
+                         "windows/desktop/src-tauri/tauri.conf.json",
                          "LICENSE", "integrations/VSCode/LICENSE", "scripts/release-config.py"]:
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / relative, destination)
 
     def run_metadata(self, *args):
-        return subprocess.run(["python3", str(self.root / "scripts/release-config.py"), *args],
+        return subprocess.run([sys.executable, str(self.root / "scripts/release-config.py"), *args],
                               check=False, capture_output=True, text=True)
 
     def test_current_metadata_is_consistent(self):
@@ -370,6 +375,24 @@ class ReleaseMetadata(unittest.TestCase):
                 with patch.dict(metadata["configuration"].__globals__, ROOT=self.root):
                     with self.assertRaises(ValueError):
                         metadata["configuration"]()
+
+    def test_windows_generated_identity_is_checked_and_repaired(self):
+        for filename in ["windows/core/src/product.rs", "windows/desktop/src/product.js",
+                         "windows/desktop/src-tauri/tauri.conf.json", "windows/config/minimum-build.nsh"]:
+            path = self.root / filename
+            path.write_text("stale\n")
+            self.assertNotEqual(self.run_metadata().returncode, 0)
+            self.assertEqual(self.run_metadata("--write").returncode, 0)
+            self.assertEqual(self.run_metadata().returncode, 0)
+
+    def test_windows_targets_and_channel_cannot_be_silently_removed(self):
+        path = self.root / "windows/config/release.json"
+        original = json.loads(path.read_text())
+        for key, value in [("architectures", ["x64"]), ("minimumWindowsBuild", True),
+                           ("minimumWindowsBuild", 19045), ("channel", "release"),
+                           ("dataDirectory", "../other"), ("installMode", "perMachine")]:
+            path.write_text(json.dumps({**original, key: value}))
+            self.assertNotEqual(self.run_metadata().returncode, 0, (key, value))
 
     def test_stale_companion_name_and_lockfile_are_rejected_and_regenerated(self):
         for filename, nested, key in [

@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "baseUnixMs": 1700000000000,
+  "cases": [
+    {
+      "name": "same-time stop wins over live polling",
+      "steps": [
+        {"atMs": 0, "hook": "userPromptSubmitted", "fields": {}},
+        {"atMs": 30000, "hook": "activity", "fields": {"active": true}},
+        {"atMs": 30000, "hook": "agentStop", "fields": {"stopReason": "end_turn"}},
+        {"atMs": 30000, "hook": "activity", "fields": {"active": true}}
+      ],
+      "inspectAtMs": 30001,
+      "expected": {"sessionCount": 1, "workingCount": 0, "label": "Execution stopped", "total": null, "calls": null, "contextCurrent": null}
+    },
+    {
+      "name": "live activity is stale immediately after the exact boundary",
+      "steps": [{"atMs": 0, "hook": "activity", "fields": {"active": true}}],
+      "inspectAtMs": 90001,
+      "expected": {"sessionCount": 1, "workingCount": 0, "label": "No recent activity updates", "total": null, "calls": null, "contextCurrent": null}
+    },
+    {
+      "name": "usage is deduplicated and invalidation cannot be undone by older context",
+      "steps": [
+        {"atMs": 0, "hook": "usage", "fields": {"eventId": "call", "usageContract": 1, "inputTokens": 100, "outputTokens": 20, "cacheReadTokens": 30, "cacheWriteTokens": 10}},
+        {"atMs": 0, "hook": "usage", "fields": {"eventId": "call", "usageContract": 1, "inputTokens": 100, "outputTokens": 20, "cacheReadTokens": 30, "cacheWriteTokens": 10}},
+        {"atMs": 0, "hook": "context", "fields": {"currentTokens": 85, "tokenLimit": 100}},
+        {"atMs": 1, "hook": "contextInvalidated", "fields": {"eventId": "reset"}},
+        {"atMs": 0.5, "hook": "context", "fields": {"currentTokens": 99, "tokenLimit": 100}}
+      ],
+      "inspectAtMs": 2,
+      "expected": {"sessionCount": 0, "workingCount": 0, "label": null, "total": "120", "calls": "1", "contextCurrent": null}
+    },
+    {
+      "name": "reported context zero remains available without creating task activity",
+      "steps": [
+        {"atMs": 0, "hook": "context", "fields": {"currentTokens": 90, "tokenLimit": 100}},
+        {"atMs": 1, "hook": "contextInvalidated", "fields": {"eventId": "reset"}},
+        {"atMs": 2, "hook": "context", "fields": {"currentTokens": 0, "tokenLimit": 200}}
+      ],
+      "inspectAtMs": 3,
+      "expected": {"sessionCount": 0, "workingCount": 0, "label": null, "total": null, "calls": null, "contextCurrent": 0}
+    },
+    {
+      "name": "idle does not erase an explicit failure",
+      "steps": [
+        {"atMs": 0, "hook": "sessionEnd", "fields": {"reason": "error"}},
+        {"atMs": 1, "hook": "activity", "fields": {"active": false}}
+      ],
+      "inspectAtMs": 2,
+      "expected": {"sessionCount": 1, "workingCount": 0, "label": "Session ended with an error", "total": null, "calls": null, "contextCurrent": null}
+    },
+    {
+      "name": "live observations expire at the retention boundary",
+      "steps": [
+        {"atMs": 0, "hook": "userPromptSubmitted", "fields": {}},
+        {"atMs": 0, "hook": "usage", "fields": {"eventId": "call", "usageContract": 1, "inputTokens": 10, "outputTokens": 2}}
+      ],
+      "inspectAtMs": 86400000,
+      "expected": {"sessionCount": 0, "workingCount": 0, "label": null, "total": null, "calls": null, "contextCurrent": null}
+    }
+  ]
+}

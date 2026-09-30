@@ -15,3 +15,9 @@ integrations/VSCode/node_modules/
 integrations/VSCode/*.vsix
 scripts/__pycache__/
 scripts/docs/node_modules/
+windows/target/
+windows/desktop/node_modules/
+windows/desktop/dist/
+windows/desktop/src-tauri/binaries/
+windows/desktop/src-tauri/gen/
+windows/test-results/
