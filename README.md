@@ -193,7 +193,8 @@ new version. You can also use **Check for Updates** in the app at any time.
 Contributions of all sizes are welcome: bug reports, ideas, docs and code.
 
 - 🐛 **Found a bug or have an idea?** [Open an issue](https://github.com/rottathiago/tokenotch/issues/new/choose).
-- 📝 **Docs changes** don't need Xcode; just run `make docs-check`.
+- 📝 **Docs changes** don't need Xcode; run `make metadata` and `make docs-check`
+  to validate release notes, publication rules, and documentation.
 - 🛠️ **Code changes**: build with `make build` and test with `make test`.
 
 Start with the [contributing guide](CONTRIBUTING.md), the

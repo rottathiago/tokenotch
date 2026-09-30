@@ -51,6 +51,20 @@ class PublicationChecks(unittest.TestCase):
     def test_deleted_files_do_not_block_publication(self):
         self.assertEqual(self.errors(pathlib.Path("windows/README.md")), [])
 
+    def test_documentation_paths_obey_publication_rules(self):
+        retired = b"code" + b" notch"
+        for name, data, expected in [
+            ("docs/features.md", retired, "retired product name in content"),
+            ("docs/.DS_Store", b"synthetic metadata", "local filesystem metadata"),
+            ("docs/example.pem", b"synthetic signing fixture", "signing material"),
+            ("docs/example.dmg", b"synthetic installer", "build artifacts"),
+            ("scripts/docs/node_modules/example/index.js", b"synthetic dependency",
+             "legacy or generated tree"),
+        ]:
+            with self.subTest(name=name):
+                errors = self.errors(self.write(name, data))
+                self.assertTrue(any(expected in error for error in errors), errors)
+
     def test_symlinks_and_outside_paths_are_not_read(self):
         (self.root / "linked.swift").symlink_to(self.root / "missing.swift")
         self.assertTrue(self.errors(pathlib.Path("linked.swift")))

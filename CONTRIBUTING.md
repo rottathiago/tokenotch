@@ -75,12 +75,14 @@ produces both architectures. Both use ad-hoc signing without notarization.
 `make gen` packages the companion and generates the optional Xcode project;
 `make test-xcode` runs its scheme. Native UI smoke checks require a GUI session.
 
-The required `Documentation checks / docs` job runs offline Markdown/local-link
-checks after installing tools. Maintainers can run `make docs-links-external`
+The required `Documentation checks / docs` job always runs `make metadata` and
+the Python release/publication regression tests, including on documentation-only
+changes. It then runs offline Markdown/local-link checks after installing tools.
+Maintainers can run `make docs-links-external`
 on reviewed content for advisory HTTPS checks; do not run network checks on
 untrusted contributions. A skipped or unreachable external URL is not verified.
-Native CI still runs its complete checks; a documentation-only contributor need
-not claim to have run those locally.
+Native CI runs its complete checks for changes outside documentation-only paths;
+a documentation-only contributor need not claim to have run those locally.
 
 For native UI timing regressions, run
 `xcrun swift test --filter 'NotchWaitTests|HistoryPresentationTests|testIdleAutoHideAndHoverExpansion'`.
@@ -152,9 +154,12 @@ Do not post conduct allegations or security details in public issues;
 ## Maintainer release changes
 
 `config/Release.json` is authoritative. After changing identity/version fields,
-run `python3 scripts/release-config.py --write` and `make metadata`.
-`make metadata` includes tracked and untracked publication-tree checks; it does
-not replace staged-diff review or a history-aware exposure assessment.
+run `python3 scripts/release-config.py --write`, prepare nonempty
+`docs/releases/<version>.md` notes for the configured version, and run
+`make metadata`. Notes must contain non-whitespace text before PR checks pass,
+not only before tagging. `make metadata` includes tracked and untracked
+publication-tree checks; it does not replace staged-diff review or a
+history-aware exposure assessment.
 
 Brand sources are `docs/design/tokenotch-notch-logo.png` and
 `docs/design/tokenotch-logo-app-icon.png`. Regenerate with
