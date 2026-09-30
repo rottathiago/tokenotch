@@ -7,8 +7,15 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RETIRED_NAME = re.compile(rb"(?:code|copilot)[ _-]?notch", re.IGNORECASE)
-PRIVATE_SUFFIXES = {".p12", ".p8", ".key", ".pem", ".mobileprovision", ".provisionprofile"}
-ARTIFACT_SUFFIXES = {".dmg", ".pkg", ".vsix", ".zip"}
+PRIVATE_SUFFIXES = {".p12", ".p8", ".key", ".pem", ".mobileprovision", ".provisionprofile", ".pfx", ".snk"}
+ARTIFACT_SUFFIXES = {".dmg", ".pkg", ".vsix", ".zip", ".exe", ".dll", ".msi", ".msix", ".appx", ".cab", ".pdb", ".obj", ".lib"}
+WINDOWS_OUTPUTS = {
+    ("windows", "target"),
+    ("windows", "desktop", "dist"),
+    ("windows", "desktop", "src-tauri", "binaries"),
+    ("windows", "desktop", "src-tauri", "gen"),
+    ("windows", "test-results"),
+}
 
 
 def publication_paths(root):
@@ -35,7 +42,8 @@ def project_errors(root, paths):
             continue
         if RETIRED_NAME.search(relative.as_posix().encode()):
             errors.append(f"{relative}: retired product name in filename")
-        if (relative.parts[0] in {"windows", "site", "build", ".build", "DerivedData"}
+        if (relative.parts[0] in {"site", "build", ".build", "DerivedData"}
+                or any(relative.parts[:len(prefix)] == prefix for prefix in WINDOWS_OUTPUTS)
                 or "node_modules" in relative.parts):
             errors.append(f"{relative}: legacy or generated tree is not publishable")
         if path.suffix.lower() in PRIVATE_SUFFIXES:

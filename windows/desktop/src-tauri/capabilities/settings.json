@@ -1,0 +1,6 @@
+{
+  "identifier": "settings",
+  "description": "Development settings may inspect runtime status and position the widget.",
+  "windows": ["settings"],
+  "permissions": ["allow-runtime-status", "allow-set-edge", "allow-set-widget-visible"]
+}

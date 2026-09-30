@@ -1,0 +1,17 @@
+[package]
+name = "tokenotch-hook"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "TokenotchHook"
+path = "src/main.rs"
+
+[dependencies]
+tokenotch-core = { path = "../core" }
+tokenotch-platform = { path = "../platform" }
+serde_json.workspace = true

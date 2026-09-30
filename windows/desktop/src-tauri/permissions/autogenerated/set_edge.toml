@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-edge"
+description = "Enables the set_edge command without any pre-configured scope."
+commands.allow = ["set_edge"]
+
+[[permission]]
+identifier = "deny-set-edge"
+description = "Denies the set_edge command without any pre-configured scope."
+commands.deny = ["set_edge"]

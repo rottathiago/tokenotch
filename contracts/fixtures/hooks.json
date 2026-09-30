@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "nowUnixMs": 1700000000000,
+  "cases": [
+    {
+      "name": "cli usage partitions inclusive input and strips content",
+      "source": "cli",
+      "hook": "usage",
+      "payload": {"sessionId":"synthetic-session","eventId":"call-1","timestamp":1700000000000,"usageContract":1,"inputTokens":100,"outputTokens":20,"cacheReadTokens":30,"cacheWriteTokens":10,"cacheReadTokensReported":true,"cacheWriteTokensReported":true,"model":"vendor/model-1","prompt":"CONTENT-MUST-NOT-SURVIVE","cwd":"CONTENT-MUST-NOT-SURVIVE"},
+      "expected": {"version":1,"kind":"usage","timestampUnixMs":1700000000000,"tokens":{"accountingVersion":1,"input":60,"output":20,"cacheInput":30,"cacheWrite":10,"cacheInputReported":true,"cacheWriteReported":true,"model":"vendor/model-1"}}
+    },
+    {
+      "name":"unreported cache is not reported zero",
+      "source":"cli","hook":"usage",
+      "payload":{"sessionId":"synthetic-session","eventId":"call-2","timestamp":1700000000000,"usageContract":1,"inputTokens":100,"outputTokens":0,"cacheReadTokensReported":false,"cacheWriteTokensReported":false},
+      "expected":{"version":1,"kind":"usage","tokens":{"input":100,"output":0,"cacheInput":0,"cacheWrite":0,"cacheInputReported":false,"cacheWriteReported":false}}
+    },
+    {
+      "name":"wrong usage accounting contract",
+      "source":"cli","hook":"usage",
+      "payload":{"sessionId":"synthetic-session","timestamp":1700000000000,"usageContract":2},
+      "error":"metricUpgrade"
+    },
+    {
+      "name":"boolean is not a token count",
+      "source":"cli","hook":"usage",
+      "payload":{"sessionId":"synthetic-session","eventId":"call-3","timestamp":1700000000000,"usageContract":1,"inputTokens":true,"outputTokens":1},
+      "error":"invalidEvent"
+    },
+    {
+      "name":"cache cannot exceed inclusive input",
+      "source":"cli","hook":"usage",
+      "payload":{"sessionId":"synthetic-session","eventId":"call-4","timestamp":1700000000000,"usageContract":1,"inputTokens":10,"outputTokens":1,"cacheReadTokens":8,"cacheWriteTokens":3},
+      "error":"invalidEvent"
+    },
+    {
+      "name":"reporting flag must match presence",
+      "source":"cli","hook":"usage",
+      "payload":{"sessionId":"synthetic-session","eventId":"call-5","timestamp":1700000000000,"usageContract":1,"inputTokens":10,"outputTokens":1,"cacheReadTokensReported":true},
+      "error":"invalidEvent"
+    },
+    {
+      "name":"working lifecycle",
+      "source":"cli","hook":"userPromptSubmitted",
+      "payload":{"sessionId":"synthetic-session","timestamp":1700000000000,"prompt":"CONTENT-MUST-NOT-SURVIVE"},
+      "expected":{"version":1,"kind":"working"}
+    },
+    {
+      "name":"stopped is not successful",
+      "source":"cli","hook":"agentStop",
+      "payload":{"sessionId":"synthetic-session","timestamp":1700000000000,"stopReason":"end_turn"},
+      "expected":{"version":1,"kind":"stopped"}
+    },
+    {
+      "name":"timeout is not failure",
+      "source":"cli","hook":"sessionEnd",
+      "payload":{"sessionId":"synthetic-session","timestamp":1700000000000,"reason":"timeout"},
+      "expected":{"version":1,"kind":"ended"}
+    },
+    {
+      "name":"live snapshot requires schema two",
+      "source":"cli","hook":"activity",
+      "payload":{"sessionId":"synthetic-session","timestamp":1700000000000,"active":true},
+      "expected":{"version":2,"kind":"active"}
+    },
+    {
+      "name":"integer is not an activity flag",
+      "source":"cli","hook":"activity",
+      "payload":{"sessionId":"synthetic-session","timestamp":1700000000000,"active":1},
+      "error":"invalidEvent"
+    },
+    {
+      "name":"context can exceed reported limit",
+      "source":"cli","hook":"context",
+      "payload":{"sessionId":"synthetic-session","eventId":"context-1","timestamp":1700000000000,"currentTokens":110,"tokenLimit":100},
+      "expected":{"version":1,"kind":"context","context":{"currentTokens":110,"tokenLimit":100}}
+    },
+    {
+      "name":"zero context limit is unavailable",
+      "source":"cli","hook":"context",
+      "payload":{"sessionId":"synthetic-session","timestamp":1700000000000,"currentTokens":0,"tokenLimit":0},
+      "error":"invalidEvent"
+    },
+    {
+      "name":"context invalidation has no invented count",
+      "source":"cli","hook":"contextInvalidated",
+      "payload":{"sessionId":"synthetic-session","eventId":"context-2","timestamp":1700000000000},
+      "expected":{"version":2,"kind":"contextInvalidated"}
+    },
+    {
+      "name":"completed compaction",
+      "source":"cli","hook":"compaction",
+      "payload":{"sessionId":"synthetic-session","eventId":"compact-1","timestamp":1700000000000,"phase":"complete","success":false,"beforeTokens":100,"afterTokens":80},
+      "expected":{"version":2,"kind":"compaction","compaction":{"success":false,"before":100,"after":80}}
+    },
+    {
+      "name":"compaction start cannot include completion counts",
+      "source":"cli","hook":"compaction",
+      "payload":{"sessionId":"synthetic-session","eventId":"compact-2","timestamp":1700000000000,"phase":"start","beforeTokens":100},
+      "error":"invalidEvent"
+    },
+    {
+      "name":"approval request never approves anything",
+      "source":"cli","hook":"notification",
+      "payload":{"sessionId":"synthetic-session","timestamp":1700000000000,"hook_event_name":"Notification","notification_type":"permission_prompt","message":"CONTENT-MUST-NOT-SURVIVE"},
+      "expected":{"version":3,"kind":"approvalRequested"}
+    },
+    {
+      "name":"recoverable error is filtered",
+      "source":"cli","hook":"errorOccurred",
+      "payload":{"sessionId":"synthetic-session","timestamp":1700000000000,"recoverable":true},
+      "filtered":true
+    },
+    {
+      "name":"unrecoverable error is not session termination",
+      "source":"cli","hook":"errorOccurred",
+      "payload":{"sessionId":"synthetic-session","timestamp":1700000000000,"recoverable":false},
+      "expected":{"version":3,"kind":"unrecoverableError"}
+    },
+    {
+      "name":"stale lifecycle rejected",
+      "source":"cli","hook":"sessionStart",
+      "payload":{"sessionId":"synthetic-session","timestamp":1699999879999},
+      "error":"invalidEvent"
+    },
+    {
+      "name":"future boundary is inclusive",
+      "source":"cli","hook":"sessionStart",
+      "payload":{"sessionId":"synthetic-session","timestamp":1700000030000},
+      "expected":{"version":1,"kind":"started","timestampUnixMs":1700000030000}
+    },
+    {
+      "name":"local VS Code ISO timestamp",
+      "source":"vscode","hook":"Stop",
+      "payload":{"session_id":"synthetic-session","timestamp":"2023-11-14T22:13:20Z","hook_event_name":"Stop","transcript_path":"CONTENT-MUST-NOT-SURVIVE"},
+      "expected":{"version":1,"kind":"stopped","timestampUnixMs":1700000000000}
+    },
+    {
+      "name":"VS Code discovered CLI hook is filtered",
+      "source":"cli","hook":"agentStop",
+      "payload":{"session_id":"synthetic-session","timestamp":"2023-11-14T22:13:20Z","hook_event_name":"Stop"},
+      "filtered":true
+    }
+  ]
+}
