@@ -32,13 +32,18 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def text_digest(path):
+    text = path.read_bytes().decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def manifest():
     return {
         "source": str(SOURCE.relative_to(ROOT)),
         "sourceSHA256": digest(SOURCE),
         "appIconSource": str(APP_ICON_SOURCE.relative_to(ROOT)),
         "appIconSourceSHA256": digest(APP_ICON_SOURCE),
-        "generatorSHA256": digest(Path(__file__)),
+        "generatorSHA256": text_digest(Path(__file__)),
         "assets": {str(path.relative_to(ROOT)): digest(path) for path in ASSETS},
     }
 

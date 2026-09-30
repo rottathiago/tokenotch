@@ -21,6 +21,14 @@ class BrandAssetTests(unittest.TestCase):
         self.assertEqual(actual.size, expected.size)
         self.assertIsNone(ImageChops.difference(actual, expected).getbbox(alpha_only=False))
 
+    def test_generator_digest_is_independent_of_platform_line_endings(self):
+        with tempfile.TemporaryDirectory() as temp:
+            lf = Path(temp) / "lf.py"
+            crlf = Path(temp) / "crlf.py"
+            lf.write_bytes(b"first\nsecond\n")
+            crlf.write_bytes(b"first\r\nsecond\r\n")
+            self.assertEqual(brand.text_digest(lf), brand.text_digest(crlf))
+
     def test_content_box_ignores_transparent_noise(self):
         image = Image.new("RGBA", (10, 10))
         image.putpixel((0, 0), (255, 255, 255, 1))
