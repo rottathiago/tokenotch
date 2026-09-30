@@ -1,4 +1,5 @@
-!include "${__FILEDIR__}/minimum-build.nsh"
+!addincludedir "${__FILEDIR__}"
+!include "minimum-build.nsh"
 
 !macro NSIS_HOOK_PREINSTALL
   Push $R0

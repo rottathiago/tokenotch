@@ -96,6 +96,12 @@ class PayloadChecks(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         artifacts["stage"](architecture)
 
+    def test_installer_hook_uses_native_include_directory(self):
+        hook = (ROOT / "windows/config/installer-hooks.nsh").read_text()
+        self.assertIn('!addincludedir "${__FILEDIR__}"', hook)
+        self.assertIn('!include "minimum-build.nsh"', hook)
+        self.assertNotIn('${__FILEDIR__}/minimum-build.nsh', hook)
+
 
 if __name__ == "__main__":
     unittest.main()
