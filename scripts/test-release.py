@@ -224,8 +224,11 @@ class ReleaseGates(unittest.TestCase):
             self.assertIn(("make", "universal"), commands)
             signatures = [args for args in commands if args[:2] == ("codesign", "--force")]
             self.assertEqual(len(signatures), 2)
-            self.assertTrue(signatures[0][-1].endswith("/Contents/Helpers/TokenotchHook"))
-            self.assertTrue(signatures[1][-1].endswith("/Tokenotch.app"))
+            self.assertEqual(
+                pathlib.Path(signatures[0][-1]).parts[-3:],
+                ("Contents", "Helpers", "TokenotchHook"),
+            )
+            self.assertEqual(pathlib.Path(signatures[1][-1]).name, "Tokenotch.app")
             for signature in signatures:
                 self.assertEqual(signature[signature.index("--sign") + 1], "-")
                 self.assertNotIn("--timestamp", signature)
