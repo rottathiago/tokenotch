@@ -3,6 +3,7 @@ import copy
 import contextlib
 import io
 import json
+import os
 import pathlib
 import plistlib
 import runpy
@@ -257,6 +258,85 @@ class ReleaseGates(unittest.TestCase):
         self.assertEqual(command[command.index("--notes-file") + 1], "build/releases/release-notes.md")
         self.assertEqual(command[-2:], ["build/releases/Tokenotch.dmg", "build/releases/Tokenotch.pkg"])
         self.assertFalse(any(".sha256" in part or "-inventory.json" in part for part in command))
+
+
+class ReleaseNotesChecks(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="tokenotch-notes-cli-test-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = pathlib.Path(self.temporary.name)
+        for relative in ["config/Release.json", "scripts/release.py", "scripts/package.py"]:
+            destination = self.root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, destination)
+        self.config = json.loads((self.root / "config/Release.json").read_text())
+        self.notes = self.root / f"docs/releases/{self.config['version']}.md"
+        self.notes.parent.mkdir(parents=True)
+
+    def run_notes(self, *args):
+        return subprocess.run(
+            ["python3", str(self.root / "scripts/release.py"), "--check-notes", *args],
+            cwd=self.root, check=False, capture_output=True, text=True,
+            env={"PATH": os.environ["PATH"]})
+
+    def test_cli_accepts_current_notes_without_git_or_apple_configuration(self):
+        self.notes.write_text("# Tokenotch\n\nFixture release notes.\n")
+        result = self.run_notes()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(str(self.notes.relative_to(self.root)), result.stdout)
+        self.assertIn("Release preflight has not run", result.stdout)
+
+    def test_cli_rejects_missing_empty_and_renamed_current_notes(self):
+        for content in [None, "", " \t\n"]:
+            with self.subTest(content=content):
+                if content is not None:
+                    self.notes.write_text(content)
+                result = self.run_notes()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Release blocked: Add nonempty release notes", result.stderr)
+        self.notes.write_text("# Tokenotch\n\nFixture release notes.\n")
+        self.notes.rename(self.notes.with_name("other-version.md"))
+        result = self.run_notes()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Add nonempty release notes", result.stderr)
+
+    def test_notes_only_does_not_invoke_release_prerequisites(self):
+        self.notes.write_text("# Tokenotch\n\nFixture release notes.\n")
+        unexpected = Mock(side_effect=AssertionError("Notes validation must not run release prerequisites"))
+        with patch.dict(release["main"].__globals__, ROOT=self.root, run=unexpected,
+                        repository_name=unexpected, notarize=unexpected), \
+             patch.dict("os.environ", {"TOKENOTCH_RELEASE_EVIDENCE": str(self.root / "missing.json")},
+                        clear=True), \
+             patch("sys.argv", ["release.py", "--check-notes"]), \
+             contextlib.redirect_stdout(io.StringIO()):
+            release["main"]()
+        unexpected.assert_not_called()
+
+    def test_cli_rejects_release_mode_combinations(self):
+        self.notes.write_text("# Tokenotch\n\nFixture release notes.\n")
+        for args in [("--check",), ("--signed",), ("--evidence", "acceptance.json")]:
+            with self.subTest(args=args):
+                result = self.run_notes(*args)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("--check-notes", result.stderr)
+
+    def test_required_docs_job_runs_metadata_and_python_regressions_unconditionally(self):
+        workflow = (ROOT / ".github/workflows/docs.yml").read_text()
+        docs_job = workflow.split("\n  docs:\n", 1)[1]
+        job_settings, steps = docs_job.split("\n    steps:\n", 1)
+        self.assertIn("runs-on: ubuntu-latest", job_settings)
+        self.assertNotIn("if:", job_settings)
+        self.assertNotIn("continue-on-error:", job_settings)
+        for command in ["make metadata", "python3 scripts/test-release.py",
+                        "python3 scripts/test-project.py"]:
+            matching = [step for step in steps.split("\n      - ") if command in step]
+            self.assertEqual(len(matching), 1, command)
+            self.assertNotIn("if:", matching[0])
+            self.assertNotIn("continue-on-error:", matching[0])
+        makefile = (ROOT / "Makefile").read_text()
+        target = makefile.split("\nmetadata:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("\tpython3 scripts/release.py --check-notes\n", target)
+        self.assertIn("\tpython3 scripts/check-project.py", target)
 
 
 class ReleaseMetadata(unittest.TestCase):

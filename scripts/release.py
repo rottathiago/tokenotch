@@ -75,15 +75,25 @@ def release_notes(config):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true")
+    mode.add_argument("--check-notes", action="store_true",
+                      help="validate configured-version release notes without release preflight")
     parser.add_argument("--signed", action="store_true",
                         help="require Developer ID signing, notarization and signed-release acceptance")
     parser.add_argument("--evidence", type=pathlib.Path,
-                        help="acceptance record used only with --signed",
-                        default=pathlib.Path(os.environ.get("TOKENOTCH_RELEASE_EVIDENCE", ROOT / "config/ReleaseAcceptance.json")))
+                        help="acceptance record used only with --signed")
     args = parser.parse_args()
+    if args.check_notes and (args.signed or args.evidence is not None):
+        parser.error("--check-notes cannot be combined with --signed or --evidence")
     config = json.loads((ROOT / "config/Release.json").read_text())
-    evidence = json.loads(args.evidence.read_text()) if args.signed else None
+    if args.check_notes:
+        notes = release_notes(config)
+        print(f"Release notes are nonempty: {notes.relative_to(ROOT)}. Release preflight has not run.")
+        return
+    evidence_path = args.evidence or pathlib.Path(os.environ.get(
+        "TOKENOTCH_RELEASE_EVIDENCE", ROOT / "config/ReleaseAcceptance.json"))
+    evidence = json.loads(evidence_path.read_text()) if args.signed else None
     revision = run("git", "rev-parse", "HEAD", capture=True)
     dirty = bool(run("git", "status", "--porcelain", capture=True))
     errors = gate_errors(config, evidence, revision, repository_name(), dirty, signed=args.signed)

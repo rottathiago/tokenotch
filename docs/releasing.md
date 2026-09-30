@@ -8,7 +8,8 @@ is `rottathiago/tokenotch`, and the locally bundled companion is
 `rottathiago.tokenotch-vscode`. These do not imply marketplace registration,
 Apple signing approval, or an existing published release.
 
-After changing release metadata, run:
+After changing release metadata, prepare
+`docs/releases/<version>.md` for the configured version and run:
 
 ```sh
 python3 scripts/release-config.py --write
@@ -20,9 +21,14 @@ wire/storage schema versions separate from the app version and increment the
 build number monotonically for redistributed builds. Preserve the MIT notice
 and verify distribution rights for all code/artwork.
 
-Add `docs/releases/<version>.md` for every version before tagging it. Packaging
-refuses missing or empty notes; the workflow uses the notes matching the selected
-tag rather than reusing the first release's description.
+Add `docs/releases/<version>.md` with non-whitespace text for every version as
+part of its version change, before PR checks pass. Both `make metadata` and
+packaging refuse missing or empty notes; the release workflow uses the notes
+matching the selected tag rather than reusing the first release's description.
+For a notes-only check, run `python3 scripts/release.py --check-notes`. This does
+not require a tag, clean checkout, acceptance record, or Apple credentials, and
+does not certify full release readiness. Use `--check` separately for full
+release preflight.
 
 Prepare candidate notes, compatibility wording and the supported-version policy
 in `SECURITY.md` before freezing the source revision. Record actual acceptance
@@ -33,6 +39,9 @@ reassess the affected evidence rather than copying an old approval onto a new SH
 files. It rejects retired product names, obsolete distribution trees, local
 filesystem metadata, installer artifacts, and signing-key files. It is not a
 replacement for reviewing the staged diff and scanning for secrets before pushing.
+The required `Documentation checks / docs` Ubuntu job runs metadata validation
+and Python release/publication regression tests on every PR and push to `main`,
+including documentation-only changes that skip native CI.
 The app and companion retain the original MIT copyright and permission notice;
 renaming the product does not remove those obligations.
 

@@ -15,6 +15,7 @@ universal:
 
 metadata:
 	python3 scripts/release-config.py
+	python3 scripts/release.py --check-notes
 	python3 scripts/make-brand-assets.py --check
 	python3 scripts/check-project.py
 
