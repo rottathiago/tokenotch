@@ -26,6 +26,9 @@ class PublicationChecks(unittest.TestCase):
 
     def test_clean_source_and_attribution(self):
         paths = [self.write("sources/App/TokenotchMain.swift"),
+                 self.write("windows/Cargo.toml"),
+                 self.write("windows/desktop/src/main.js"),
+                 self.write("windows/desktop/src-tauri/capabilities/desktop.json"),
                  self.write("LICENSE", b"Copyright (c) 2026 Vinz\nMIT License\n"),
                  self.write("sources/Resources/Brand/Tokenotch.png", b"\x89PNG\0")]
         self.assertEqual(self.errors(*paths), [])
@@ -39,12 +42,18 @@ class PublicationChecks(unittest.TestCase):
                     self.assertTrue(self.errors(self.write(f"{name}.png", b"\0")))
 
     def test_legacy_trees_and_build_or_signing_artifacts(self):
-        for name in ["windows/Cargo.toml", "site/feed.xml", ".github/release.p12",
+        for name in ["windows/target/debug/dependency.json", "site/feed.xml", ".github/release.p12",
                      "notary.p8", "certificate.pem", "signing.key", "Tokenotch.dmg",
                      "Tokenotch.pkg", "Tokenotch.zip", "TokenotchVSCode.vsix",
                      "Tokenotch.app/Contents/MacOS/Tokenotch", ".DS_Store",
                      "build/generated.swift", ".build/cache.json", "DerivedData/build.log",
-                     "integrations/VSCode/node_modules/package/index.js"]:
+                     "integrations/VSCode/node_modules/package/index.js",
+                     "windows/desktop/dist/index.html", "windows/desktop/src-tauri/binaries/helper",
+                     "windows/desktop/src-tauri/gen/schemas/desktop.json",
+                     "windows/desktop/node_modules/vite/index.js", "windows/test-results/output.txt",
+                     "windows/Tokenotch.exe", "docs/example.msi", "windows/helper.dll",
+                     "windows/signing.pfx", "windows/signing.snk", "windows/debug.pdb",
+                     "windows/payload.msix", "windows/native.obj", "windows/native.lib"]:
             with self.subTest(name=name):
                 self.assertTrue(self.errors(self.write(name)))
 

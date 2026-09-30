@@ -1,0 +1,6 @@
+{
+  "identifier": "widget",
+  "description": "The edge widget may expand itself and open the recovery window.",
+  "windows": ["widget"],
+  "permissions": ["allow-runtime-status", "allow-open-settings", "allow-set-expanded"]
+}

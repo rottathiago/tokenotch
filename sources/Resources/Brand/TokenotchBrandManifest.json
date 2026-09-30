@@ -3,7 +3,7 @@
   "sourceSHA256": "ace495afd249233bf5636828d273e07598825166772fe091a2bfb4f1ff0055d2",
   "appIconSource": "docs/design/tokenotch-logo-app-icon.png",
   "appIconSourceSHA256": "bbf09118792e5abda08b26f26fedabd7c91a05e1a72b0a7a30ba881beb25f336",
-  "generatorSHA256": "054a6532a5f74c72f9b0755dc36558d3808b107cc3e1415b608d3c518512fcc5",
+  "generatorSHA256": "a66ece680c63cf182a5dfc2f626d6ba39919e12ca71e52aad4d82fb5fc086b04",
   "assets": {
     "sources/Resources/Brand/TokenotchMark.png": "c0d78b9676968a2d9b53c5ba49da60e146f26891ea7f31e744b88e516428bb6b",
     "sources/Resources/Brand/TokenotchMarkDark.png": "5fb51e73c25c1038322ff7f83bdd005280dd813cf3461ba420b29414746b119e",

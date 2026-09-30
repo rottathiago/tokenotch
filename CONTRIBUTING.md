@@ -56,6 +56,27 @@ Update tool pins and lockfiles together when intentionally upgrading them.
 | `tests`, `scripts` | XCTest/shared fixtures, smoke checks and packaging |
 | `config`, `docs` | Release identity, user guidance and technical contracts |
 
+### Generated files and local cleanup
+
+No files in `build/` or `.build/` are source inputs or need to be committed.
+Keep generated output only while using it:
+
+| Output | Keep when needed for |
+| --- | --- |
+| `build/Tokenotch.app` | Running the development app or packaging with `--skip-build` |
+| `build/native`, `build/native-arm64`, `build/native-x86_64` | Intermediate libraries and executables; recreated by `make build` or `make universal` |
+| `build/packages`, `build/releases` | Retaining installers, checksums and release evidence; archive public release evidence before cleanup |
+| `build/tokenotch-*-smoke`, `build/render`, copied artwork and logs | Inspecting local smoke-check results; not required by the app |
+| `.build/` | Swift package build cache; recreated by Swift package commands |
+| `integrations/VSCode/TokenotchVSCode.vsix` | Packaging the companion; recreated by `make vscode-companion` and native builds |
+
+After stopping builds and any app running from the output being removed, unused
+generated files can be deleted. Old product bundles, migration-only artifacts and
+downloaded tool archives are not required. Keep development tools on `PATH`
+as described in the prerequisites rather than relying on copies under `build/`.
+`make clean` invokes `swift package clean`; it does not clean the separate
+`build/` outputs or packaged VS Code extensions.
+
 ## Validate the change you made
 
 | Change | Appropriate starting checks |

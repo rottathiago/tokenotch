@@ -1,0 +1,8 @@
+{
+  "minimumWindowsBuild": 26100,
+  "architectures": ["x64", "arm64"],
+  "installer": "nsis",
+  "installMode": "currentUser",
+  "dataDirectory": "Tokenotch",
+  "channel": "development"
+}

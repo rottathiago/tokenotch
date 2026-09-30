@@ -1,4 +1,4 @@
-.PHONY: build universal metadata test test-ci smoke smoke-telemetry vscode-companion smoke-history smoke-timeline smoke-notch gen test-xcode run clean package release docs-check docs-links-external
+.PHONY: build universal metadata test test-ci smoke smoke-contracts smoke-telemetry vscode-companion smoke-history smoke-timeline smoke-notch gen test-xcode run clean package release docs-check docs-links-external
 
 docs-check:
 	node scripts/docs/check.mjs
@@ -42,6 +42,13 @@ smoke-telemetry:
 		tests/TelemetryChecks.swift tests/SourceHistoryChecks.swift tests/TelemetryImportChecks.swift \
 		scripts/telemetry-smoke.swift -lsqlite3 -o build/tokenotch-telemetry-smoke
 	build/tokenotch-telemetry-smoke
+
+smoke-contracts:
+	mkdir -p build
+	swiftc -swift-version 5 -parse-as-library sources/Core/*.swift \
+		tests/WindowsContractChecks.swift scripts/windows-contract-smoke.swift \
+		-lsqlite3 -o build/tokenotch-contract-smoke
+	build/tokenotch-contract-smoke
 
 vscode-companion:
 	python3 scripts/release-config.py
