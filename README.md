@@ -185,9 +185,12 @@ On the way:
 - 🪟 **Windows port**: Tokenotch beyond the Mac.
 - 🔌 **More providers**: support for more AI coding assistants and tools.
 
-The [Windows development foundation](windows/README.md) uses Rust, Tauri 2 and
-JavaScript, targeting native x64 and ARM64. It is not yet a supported release
-or a working Copilot connection; macOS remains the available application.
+The [Windows implementation and local production builds](windows/README.md) use Rust, Tauri 2 and
+JavaScript, targeting native x64 and ARM64. It now includes consent-based local
+connections, usage, account quota, optional history/timelines and Windows
+notifications. Windows 1.0.0 can be packaged as an explicitly unsigned local
+production installer. Full feature parity and native ARM64/real-client/release
+acceptance remain in progress; macOS remains the supported public download.
 
 ⭐ **Star** the repo and choose **Watch > Custom > Releases** to hear about each
 new version. You can also use **Check for Updates** in the app at any time.

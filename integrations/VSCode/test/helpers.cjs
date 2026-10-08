@@ -83,7 +83,11 @@ function fakeVSCode() {
   const vscode = {
     env: { uriScheme: 'vscode', appRoot: '/fake/Visual Studio Code.app/Contents/Resources/app' },
     ConfigurationTarget: { Global: 1 },
-    workspace: { workspaceFolders: [], getConfiguration: () => configuration },
+    workspace: { workspaceFolders: [], getConfiguration: () => {
+      if (!state.snapshotConfiguration) return configuration;
+      const values = Object.fromEntries(Object.keys(defaults).map(key => [key, configuration.get(key)]));
+      return { ...configuration, get: key => structuredClone(values[key]) };
+    } },
     window: {
       async showInformationMessage(message, options, ...items) {
         messages.push({ message, options, items });

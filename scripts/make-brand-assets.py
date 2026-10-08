@@ -108,11 +108,14 @@ BACKDROP_LUMA = 8
 
 
 def icon_tile(artwork):
-    """Cut the rounded tile out of the opaque black backdrop around it.
+    """Preserve a transparent tile, or cut it out of a legacy black backdrop.
 
-    The tile's light rim separates its dark face from the backdrop, so a flood fill
-    from the corners removes only the backdrop.
+    For opaque artwork, the tile's light rim separates its face from the backdrop,
+    so a flood fill from the corners removes only the backdrop.
     """
+    rgba = artwork.convert("RGBA")
+    if rgba.getchannel("A").getextrema()[0] < 255:
+        return rgba.crop(content_box(rgba))
     rgb = artwork.convert("RGB")
     backdrop = rgb.convert("L").point(lambda v: 255 if v <= BACKDROP_LUMA else 0)
     for corner in ((0, 0), (rgb.width - 1, 0), (0, rgb.height - 1), (rgb.width - 1, rgb.height - 1)):

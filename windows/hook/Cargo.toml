@@ -12,6 +12,7 @@ name = "TokenotchHook"
 path = "src/main.rs"
 
 [dependencies]
+tokio = { version = "1", features = ["rt", "io-util", "time", "net", "macros"] }
 tokenotch-core = { path = "../core" }
 tokenotch-platform = { path = "../platform" }
 serde_json.workspace = true

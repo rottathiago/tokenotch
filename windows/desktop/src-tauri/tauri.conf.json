@@ -22,9 +22,9 @@
       {
         "label": "widget",
         "title": "Tokenotch activity",
-        "url": "index.html?surface=widget",
-        "width": 64,
-        "height": 112,
+        "url": "index.html?surface=notch",
+        "width": 70,
+        "height": 194,
         "transparent": true,
         "decorations": false,
         "alwaysOnTop": true,
@@ -59,7 +59,8 @@
     "resources": {
       "../../../LICENSE": "LICENSE",
       "../../config/release.json": "WindowsRelease.json",
-      "../../../config/Release.json": "Release.json"
+      "../../../config/Release.json": "Release.json",
+      "../../../integrations/VSCode/TokenotchVSCode.vsix": "TokenotchVSCode.vsix"
     },
     "windows": {
       "webviewInstallMode": {

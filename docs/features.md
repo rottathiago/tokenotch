@@ -15,6 +15,13 @@ attention. Tokenotch is an independent project and is not affiliated with or
 endorsed by GitHub or Microsoft. This detailed implementation
 reference does not certify release acceptance; see [compatibility](compatibility.md).
 
+This reference describes the macOS implementation. The
+[Windows implementation](../windows/README.md) now covers local
+collection, usage, account quota, archives and desktop notifications, with its
+remaining parity differences and Windows-specific acceptance gates listed there.
+Windows 1.0.0 supports explicitly unsigned local production packaging; this is
+not a public release or certification of native ARM64/real-client compatibility.
+
 ## What works in this implementation
 
 - Copilot-only native quota ring, usage/session hover card, menu bar and Settings.
@@ -180,8 +187,11 @@ accessibility descriptions retain the full explanation.
 These states are consistent across live usage, saved history, and timelines.
 Copilot CLI reports inclusive input. Tokenotch subtracts known cache reads and writes
 once to obtain the remaining input. With complete reporting, that remainder is
-regular input; otherwise it is labeled **Input (breakdown incomplete)** (`Input*`
-in the notch) and may include unreported cache activity. The total always equals
+regular input; otherwise it is labeled **Input (breakdown incomplete)** and may
+include unreported cache activity. In the notch, every starred number (`1.2M*`)
+shares one footnote, **Some calls did not report cache tokens**: a starred input
+may include unreported cache activity and a starred cache count covers only the
+calls that reported it. The total always equals
 runtime inclusive input + output, with known cache reads and writes counted
 once, not added a second time. Missing category detail does not make that total
 incomplete, although missed calls and sample limits still do.
@@ -553,8 +563,9 @@ menu-bar icon. The generator trims transparent margins without changing its
 proportions, redraws the dark linework in light ink for dark backgrounds (dropping
 the white fill), and uses that linework as the menu-bar template.
 `docs/design/tokenotch-logo-app-icon.png` is the source for the macOS app icon and
-the VS Code companion icon. The generator cuts its rounded tile out of the black
-backdrop and places it on the macOS icon grid with a drop shadow.
+the VS Code companion icon. Its white rounded tile has transparent margins.
+The generator preserves that transparency and places the tile on the macOS icon
+grid with a drop shadow; legacy artwork with a black backdrop is also supported.
 The generated assets supply Settings, About, the macOS app icon, this README,
 and the local VS Code companion. After replacing the source, regenerate the
 assets, repackage the companion with `make vscode-companion`, and rebuild the app.
@@ -644,7 +655,8 @@ health polling, but full enterprise deployment is not certified.
 [historical plan](plans/original-implementation.md) preserves the original proposal;
 [TASKS.md](../TASKS.md) records implemented versus unvalidated/deferred work.
 Obsolete Windows source, unrelated provider assets, and upstream
-design/specification documents have been removed. Windows is not supported.
+design/specification documents have been removed. The current Windows
+implementation has local production builds but is not a supported public release.
 Inherited publication workflows and binary/update-feed artifacts are not Tokenotch deliverables.
 
 ## Attribution

@@ -1,5 +1,26 @@
 use serde::Serialize;
 
+pub mod account;
+pub mod archive;
+pub mod attention;
+pub mod broker;
+pub mod calendar;
+pub mod connections;
+pub mod desktop;
+pub mod display;
+pub mod import;
+pub mod navigation;
+pub mod notifications;
+pub mod preferences;
+pub mod receiver;
+pub mod runtime;
+#[cfg(windows)]
+pub mod security;
+mod sqlite_import;
+pub mod storage;
+pub mod transport;
+pub mod vscode;
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Runtime {

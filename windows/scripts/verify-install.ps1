@@ -20,9 +20,12 @@ try {
     $statusText = & "$directory/TokenotchHook.exe" --self-test
     if ($LASTEXITCODE -ne 0) { throw 'Installed helper self-test failed.' }
     $status = $statusText | ConvertFrom-Json
+    $product = Get-Content "$PSScriptRoot/../../config/Release.json" -Raw | ConvertFrom-Json
+    $release = Get-Content "$PSScriptRoot/../config/release.json" -Raw | ConvertFrom-Json
     $expected = if ($Architecture -eq 'x64') { 'x86_64' } else { 'aarch64' }
-    if ($status.runtime.executableArchitecture -ne $expected -or $status.connectionsEnabled -ne $false) {
-        throw 'Installed helper did not report the expected development identity.'
+    if ($status.runtime.platform -ne 'windows' -or $status.runtime.executableArchitecture -ne $expected -or
+        $status.connectionsEnabled -ne $true -or $status.version -ne $product.version -or $status.channel -ne $release.channel) {
+        throw 'Installed helper did not report the expected version, channel and architecture.'
     }
     if (-not (Test-Path "$directory/LICENSE" -PathType Leaf)) { throw 'Installed license notice is missing.' }
     Write-Host "Installed $Architecture payload and helper passed. Desktop/live-client acceptance is still separate."

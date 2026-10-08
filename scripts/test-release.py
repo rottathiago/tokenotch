@@ -392,10 +392,25 @@ class ReleaseMetadata(unittest.TestCase):
         path = self.root / "windows/config/release.json"
         original = json.loads(path.read_text())
         for key, value in [("architectures", ["x64"]), ("minimumWindowsBuild", True),
-                           ("minimumWindowsBuild", 19045), ("channel", "release"),
+                           ("minimumWindowsBuild", 19045), ("channel", "unknown"), ("channel", None),
                            ("dataDirectory", "../other"), ("installMode", "perMachine")]:
             path.write_text(json.dumps({**original, key: value}))
             self.assertNotEqual(self.run_metadata().returncode, 0, (key, value))
+
+    def test_windows_channels_are_generated_consistently(self):
+        path = self.root / "windows/config/release.json"
+        original = json.loads(path.read_text())
+        for channel in ["development", "release"]:
+            path.write_text(json.dumps({**original, "channel": channel}))
+            self.assertEqual(self.run_metadata("--write").returncode, 0)
+            self.assertEqual(self.run_metadata().returncode, 0)
+            self.assertIn(f'pub const CHANNEL: &str = "{channel}";',
+                          (self.root / "windows/core/src/product.rs").read_text())
+            self.assertIn(f'"channel": "{channel}"',
+                          (self.root / "windows/desktop/src/product.js").read_text())
+        del original["channel"]
+        path.write_text(json.dumps(original))
+        self.assertNotEqual(self.run_metadata("--write").returncode, 0)
 
     def test_stale_companion_name_and_lockfile_are_rejected_and_regenerated(self):
         for filename, nested, key in [

@@ -3,7 +3,7 @@ const edges = new Set(["top", "right", "bottom", "left"]);
 export function validateStatus(value) {
   if (!value || typeof value !== "object" ||
       typeof value.version !== "string" || !/^\d+\.\d+\.\d+$/.test(value.version) ||
-      value.channel !== "development" || value.connectionsEnabled !== false ||
+      !["development", "release"].includes(value.channel) || typeof value.connectionsEnabled !== "boolean" ||
       !edges.has(value.edge) || typeof value.widgetVisible !== "boolean" ||
       !Number.isInteger(value.minimumWindowsBuild) || value.minimumWindowsBuild < 22000 ||
       !value.runtime || typeof value.runtime.platform !== "string" ||
@@ -33,4 +33,8 @@ export function runtimeDescription(status) {
 export function validateEdge(edge) {
   if (!edges.has(edge)) throw new Error("Choose a supported screen edge.");
   return edge;
+}
+
+export function exposureAllowed({ engaged, expanded, visible, automatic, interacted }) {
+  return engaged && expanded && visible && (!automatic || interacted);
 }

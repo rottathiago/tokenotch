@@ -4,10 +4,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const session = await joinSession({ tools: [] });
-const helper = join(homedir(), ".tokenotch", "TokenotchHook");
+const helper = join(homedir(), ".tokenotch", process.platform === "win32" ? "TokenotchHook.exe" : "TokenotchHook");
 const queue = [];
 let active = false;
+let retryTimer;
+let retryDelay = 250;
 let warned = false;
+let expired = false;
 let activityPending = false;
 let activityWarned = false;
 let contextPending = false;
@@ -26,16 +29,40 @@ function warn() {
 }
 
 function drain() {
-    if (active || queue.length === 0) return;
+    if (active || retryTimer !== undefined) return;
+    while (queue.length > 0) {
+        const { hook, payload } = queue[0];
+        const ageLimit = process.platform === "win32" && hook === "usage" ? 86_400_000 : 120_000;
+        if (Date.now() - payload.timestamp < ageLimit) break;
+        queue.shift();
+        if (!expired) {
+            expired = true;
+            process.stderr.write("Tokenotch queued telemetry expired before delivery; reported totals may be incomplete. Check Tokenotch Connections.\n");
+        }
+    }
+    if (queue.length === 0) return;
     active = true;
-    const { hook, payload } = queue.shift();
-    const child = spawn(helper, ["cli", hook], { stdio: ["pipe", "ignore", "ignore"], timeout: 1000 });
-    child.on("error", warn);
-    child.stdin.on("error", warn);
+    const { hook, payload } = queue[0];
+    const child = spawn(helper, ["cli", hook], { stdio: ["pipe", "ignore", "ignore"], timeout: 1000, windowsHide: true });
+    let failed = false;
+    const onError = () => { failed = true; warn(); };
+    child.on("error", onError);
+    child.stdin.on("error", onError);
     child.on("close", (code) => {
-        if (code !== 0) warn();
         active = false;
-        drain();
+        if (code === 0 && !failed) {
+            queue.shift();
+            retryDelay = 250;
+            drain();
+        } else {
+            warn();
+            retryTimer = setTimeout(() => {
+                retryTimer = undefined;
+                drain();
+            }, retryDelay);
+            retryTimer.unref();
+            retryDelay = Math.min(retryDelay * 2, 5000);
+        }
     });
     child.stdin.end(JSON.stringify(payload));
 }
@@ -45,9 +72,10 @@ function validCount(value) {
 }
 
 function enqueuePayload(hook, payload) {
-    if (queue.length >= 64) {
-        warn();
-        return;
+    // Only activity snapshots are replaceable; context peaks and accounting events are not.
+    if (hook === "activity") {
+        const index = queue.findIndex((entry, index) => entry.hook === hook && (!active || index > 0));
+        if (index !== -1) queue.splice(index, 1);
     }
     queue.push({ hook, payload });
     drain();

@@ -7,13 +7,27 @@ $target = Get-WindowsTarget $Architecture
 $root = (Resolve-Path "$PSScriptRoot/../..").Path
 Push-Location $root
 try {
+    if ($env:TAURI_CONFIG -or $env:TOKENOTCH_TEST_HOME) {
+        throw 'Production builds require TAURI_CONFIG and TOKENOTCH_TEST_HOME to be unset. Remove smoke overrides explicitly.'
+    }
     Invoke-Checked { python scripts/release-config.py }
+    $product = Get-Content config/Release.json -Raw | ConvertFrom-Json
+    $release = Get-Content windows/config/release.json -Raw | ConvertFrom-Json
     Invoke-Checked { python scripts/make-brand-assets.py --check }
     Invoke-Checked { python scripts/check-project.py }
-    Invoke-Checked { npm ci --prefix windows/desktop --ignore-scripts --no-audit --no-fund }
+    npm ls --prefix windows/desktop --depth=0 --silent
+    if ($LASTEXITCODE -ne 0) {
+        Invoke-Checked { npm ci --prefix windows/desktop --ignore-scripts --no-audit --no-fund }
+    }
     Invoke-Checked { npm test --prefix windows/desktop }
     Invoke-Checked { npm run lint --prefix windows/desktop }
     Invoke-Checked { npm run build --prefix windows/desktop }
+    npm ls --prefix integrations/VSCode --depth=0 --silent
+    if ($LASTEXITCODE -ne 0) {
+        Invoke-Checked { npm ci --prefix integrations/VSCode --ignore-scripts --no-audit --no-fund }
+    }
+    Invoke-Checked { npm run package --prefix integrations/VSCode }
+    Invoke-Checked { node --test integrations/VSCode/test/windows.test.cjs }
     Push-Location windows
     try {
         Invoke-Checked { cargo fmt --all -- --check }
@@ -28,9 +42,10 @@ try {
         $status = $diagnostic | ConvertFrom-Json
         $expected = if ($Architecture -eq 'x64') { 'x86_64' } else { 'aarch64' }
         if ($status.runtime.platform -ne 'windows' -or $status.runtime.executableArchitecture -ne $expected -or
-            $status.connectionsEnabled -ne $false -or $status.channel -ne 'development') {
-            throw 'Native helper identity or development behavior did not match the target.'
+            $status.connectionsEnabled -ne $true -or $status.channel -ne $release.channel -or
+            $status.version -ne $product.version) {
+            throw 'Native helper version, channel or architecture did not match the build configuration.'
         }
-        Write-Host "Native $Architecture development build and automated checks passed."
+        Write-Host "Native $Architecture $($release.channel) build $($product.version) and automated checks passed."
     } finally { Pop-Location }
 } finally { Pop-Location }

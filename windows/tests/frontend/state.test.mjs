@@ -9,7 +9,10 @@ const status = {
 };
 
 test("native runtime describes executable architecture without asserting native OS architecture", () => {
-  assert.equal(validateStatus(status), status);
+  for (const channel of ["development", "release"]) {
+    const value = { ...status, channel };
+    assert.equal(validateStatus(value), value);
+  }
   assert.match(runtimeDescription(status), /ARM64 executable/);
   assert.match(runtimeDescription(status), /verified separately/);
 });
@@ -21,8 +24,8 @@ test("browser and macOS preview never claim Windows acceptance", () => {
 });
 
 test("unsupported status fails explicitly rather than showing connected or zero usage", () => {
-  for (const value of [null, {}, { ...status, connectionsEnabled: true }, { ...status, edge: "diagonal" },
-    { ...status, widgetVisible: 1 }, { ...status, channel: "release" },
+  for (const value of [null, {}, { ...status, connectionsEnabled: "true" }, { ...status, edge: "diagonal" },
+    { ...status, widgetVisible: 1 }, { ...status, channel: "unknown" }, { ...status, channel: null },
     { ...status, runtime: { ...status.runtime, windowsBuild: "26100" } }]) {
     assert.throws(() => validateStatus(value), /unsupported application status/);
   }

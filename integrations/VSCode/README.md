@@ -1,6 +1,6 @@
 # Tokenotch local VS Code companion
 
-An inert-until-invoked, public-API setup and diagnostics extension for **local macOS VS Code 1.138.0 or newer**. Extension ID: `rottathiago.tokenotch-vscode`; extension kind: `ui`. Runtime: CommonJS and built-in Node modules only. No private Copilot APIs, network requests, receiver probes, model inference, environment changes, telemetry of its own, or automatic configuration on activation.
+An inert-until-invoked, public-API setup and diagnostics extension for **local macOS or Windows VS Code 1.138.0 or newer**. Windows support is development-only; see the [Windows acceptance gates](../../windows/README.md#remaining-parity-and-acceptance-gates). Extension ID: `rottathiago.tokenotch-vscode`; extension kind: `ui`. Runtime: CommonJS and built-in Node modules only. No private Copilot APIs, network requests, receiver probes, model inference, environment changes, telemetry of its own, or automatic configuration on activation.
 
 ## Build and package
 
@@ -49,11 +49,20 @@ vscode-insiders://rottathiago.tokenotch-vscode/setup?nonce=<64-lowercase-hex-non
 
 Only `/setup`, the exact extension authority, and exactly one `nonce` query parameter are accepted. The scheme must be `vscode` or `vscode-insiders` and exactly match the receiving window's public `vscode.env.uriScheme`. The nonce must match the private request. Tokens, endpoints, and other query parameters are rejected. This URI dispatches either operation according to that request. A link landing in the wrong profile cannot authorize reuse of another profile's receipt.
 
-Remote SSH, WSL, containers, Codespaces, and other `vscode.env.remoteName` windows are rejected before accessing private storage; non-macOS hosts are also rejected. Workspace Trust is required, and virtual workspaces are unsupported.
+Remote SSH, WSL, containers, Codespaces, and other `vscode.env.remoteName` windows are rejected before accessing private storage; hosts other than macOS and Windows are also rejected. Workspace Trust is required, and virtual workspaces are unsupported.
 
 ## Native app contract
 
-The native app owns `~/.tokenotch`, an owned, non-symlink directory with **0700** permissions. It creates `vscode-setup-request.json`, an owned regular file with **0600** permissions, one hard link, no symlink, and at most **16 KiB**:
+On Windows, POSIX mode bits are not used as an ACL substitute. The companion
+checks the private directory/helper owner and access rules using the system
+PowerShell executable, then invokes `TokenotchHook.exe --store` with bounded JSON.
+The broker admits only named setup request/result/receipt operations and verifies
+native file ACLs, links and bounds. The shared nonce, freshness, profile ownership,
+public configuration planning and selective-removal rules below remain unchanged.
+Windows hooks use the `windows` PowerShell command field, with literal-path
+quoting. Native Windows acceptance remains separate from macOS fixtures.
+
+On macOS, the native app owns `~/.tokenotch`, an owned, non-symlink directory with **0700** permissions. It creates `vscode-setup-request.json`, an owned regular file with **0600** permissions, one hard link, no symlink, and at most **16 KiB**:
 
 ```text
 {
@@ -177,13 +186,19 @@ Earlier development companions incorrectly rejected valid `vscode-userdata:` sto
 
 The bundled companion shows the triggering **variable names**, never their values, in the setup error dialog and **Tokenotch: Check integration** diagnostics. The guard remains conservative: nonempty variables with one of the OTel prefixes listed above block metrics, including a value such as `false`, except for the narrowly matched SDK/settings cases below. A detected variable is not proof that an external collector is running. Empty and unset variables do not block setup.
 
-**The bundled companion accepts `COPILOT_OTEL_FILE_EXPORTER_PATH` only when its value is exactly `/dev/null` on the supported macOS host.** VS Code's [embedded Copilot SDK initialization](https://github.com/microsoft/vscode/blob/fdcbb6d8e610d0ed53d41f278c84b7559209a80d/extensions/copilot/src/extension/chatSessions/copilotcli/node/copilotcliSessionService.ts#L198-L220) sets this discard-only marker internally when external OTel export is not enabled. The extension host is shared, so Tokenotch can see it even when no shell or launcher override exists. VS Code's [OTel resolver snapshots its inputs before later SDK mutations](https://github.com/microsoft/vscode/blob/fdcbb6d8e610d0ed53d41f278c84b7559209a80d/extensions/copilot/src/platform/otel/common/otelConfigResolution.ts#L55-L69).
+**The bundled companion accepts `COPILOT_OTEL_FILE_EXPORTER_PATH` only when its value is exactly the host's Node `os.devNull`: `/dev/null` on macOS or `\\.\nul` on Windows.** VS Code's [embedded Copilot SDK initialization](https://github.com/microsoft/vscode/blob/fdcbb6d8e610d0ed53d41f278c84b7559209a80d/extensions/copilot/src/extension/chatSessions/copilotcli/node/copilotcliSessionService.ts#L198-L220) sets this discard-only marker internally when external OTel export is not enabled. The extension host is shared, so Tokenotch can see it even when no shell or launcher override exists. Older Windows companions recognized only the macOS marker and incorrectly blocked setup; update the bundled VSIX and reload the editor. VS Code's [OTel resolver snapshots its inputs before later SDK mutations](https://github.com/microsoft/vscode/blob/fdcbb6d8e610d0ed53d41f278c84b7559209a80d/extensions/copilot/src/platform/otel/common/otelConfigResolution.ts#L55-L69).
 
 Only that exact variable/value pair is exempted; real output paths, path variants, explicit file-output settings, other environment overrides, content capture and telemetry-off preferences remain guarded. Tokenotch does not remove or rewrite the marker. Consent and diagnostics explain that a discard-only setting is present without exposing its value. Public APIs cannot prove whether it was created internally or inherited; an inherited marker may still suppress delivery. Reload after approved setup and verify actual usage in Tokenotch rather than treating configuration as a working connection. If an older companion shows this variable as the sole blocker, update the setup extension before editing your environment.
 
+Installing a replacement VSIX does not replace a companion already loaded into
+the extension host. Run **Developer: Reload Window** after updating, then create
+a fresh Tokenotch setup request; an old error notification is not a new outcome.
+Do not delete the environment variable or ownership receipt to work around an
+old loaded companion.
+
 **The bundled companion also recognizes settings-derived variables when retrying setup after Tokenotch has enabled `github.copilot.chat.otel.enabled`.** Once that setting is explicitly enabled, VS Code's built-in Copilot Chat extension copies its own settings into the shared extension host as `COPILOT_OTEL_ENABLED=true`, `OTEL_EXPORTER_OTLP_ENDPOINT=<normalized github.copilot.chat.otel.otlpEndpoint>` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false`. These three variables are exempted only while that setting is `true` and each value exactly matches what Copilot derives from the current settings; any other value, including an external endpoint, `1` or content capture `true`, is still reported. If an older companion lists exactly these three names after a previous setup, update the setup extension instead of editing your environment.
 
-Review the names in the affected VS Code window, not just a terminal: the extension host can have a different environment. Remove unneeded overrides at their source, such as a shell startup file, launcher, or managed environment. **Fully quit VS Code with Cmd+Q and reopen it from the corrected environment**, then retry setup under **Connections > Visual Studio Code** in Tokenotch. Reload Window or running `unset` in an existing integrated terminal cannot clear the parent application's inherited environment.
+Review the names in the affected VS Code window, not just a terminal: the extension host can have a different environment. Remove unneeded overrides at their source, such as a shell startup file, launcher, or managed environment. **Fully quit VS Code with Cmd+Q on macOS or File > Exit on Windows and reopen it from the corrected environment**, then retry setup under **Connections > Visual Studio Code** in Tokenotch. Reload Window or unsetting variables in an existing integrated terminal cannot clear the parent application's inherited environment.
 
 If the overrides are intentional or managed, leave model & token usage unchecked rather than disrupting an existing collector. Activity-only setup still works without metrics, and owned settings can still be removed with overrides present. If usage was already requested, turn it off through the connection's **Options** menu first. Tokenotch never edits the environment automatically.
 
@@ -194,3 +209,11 @@ Variable names are shown only in the interactive dialog, not added to the privat
 Diagnostics are source-specific: unsupported, blocked, not configured, or **effective configured; reload may be needed; awaiting actual data**. They do not open connections, issue prompts to models, or claim live metrics from settings alone. Actual source delivery and successful native hook execution must be verified by the Tokenotch receiver/app.
 
 After successful metrics configuration or removal, VS Code offers an optional **Reload Window** action. Only selecting it invokes the public reload command. There is no forced reload/restart. A settings match cannot prove whether an already-running telemetry starter has reloaded, so diagnostics retain that qualification.
+
+Each guard and post-write check reads fresh public configuration handles, including
+current workspace folders. VS Code's `WorkspaceConfiguration.get()` retains the
+snapshot from when its handle was created, even when `inspect()` sees newer values.
+Older companions could therefore report **Public effective settings do not match**
+after successfully saving the requested settings. Update the companion, reload,
+and repair the owned integration; genuine overrides still block setup and the
+receipt remains available for selective removal.

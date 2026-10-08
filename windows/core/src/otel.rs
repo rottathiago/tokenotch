@@ -140,6 +140,7 @@ fn normalize(
     attrs: &BTreeMap<&str, &Value>,
     source: UsageSource,
     now: f64,
+    historical: bool,
 ) -> Result<Observation, Error> {
     let trace = hex(span.get("traceId"), 32)?;
     let span_id = hex(span.get("spanId"), 16)?;
@@ -148,7 +149,7 @@ fn normalize(
     if start > end
         || end - start > 86_400_000.0
         || end > now + 30_000.0
-        || end <= now - 86_400_000.0
+        || !historical && end <= now - 86_400_000.0
     {
         return Err(Error::Invalid);
     }
@@ -228,11 +229,32 @@ fn normalize(
         metric_source: Some(source),
         metric_session_reported: Some(conversation.is_some()),
     };
-    event.validate(now, true).map_err(|_| Error::Invalid)?;
+    if historical {
+        event.validate_payload().map_err(|_| Error::Invalid)?;
+    } else {
+        event.validate(now, true).map_err(|_| Error::Invalid)?;
+    }
     Ok(event)
 }
 
 pub fn decode(input: &[u8], source: UsageSource, now_unix_ms: f64) -> Result<Batch, Error> {
+    decode_mode(input, source, now_unix_ms, false)
+}
+
+pub fn decode_historical(
+    input: &[u8],
+    source: UsageSource,
+    now_unix_ms: f64,
+) -> Result<Batch, Error> {
+    decode_mode(input, source, now_unix_ms, true)
+}
+
+fn decode_mode(
+    input: &[u8],
+    source: UsageSource,
+    now_unix_ms: f64,
+    historical: bool,
+) -> Result<Batch, Error> {
     if input.len() > BODY_LIMIT || source == UsageSource::Cli {
         return Err(Error::Capacity);
     }
@@ -303,7 +325,7 @@ pub fn decode(input: &[u8], source: UsageSource, now_unix_ms: f64) -> Result<Bat
                 match span
                     .as_object()
                     .ok_or(Error::Invalid)
-                    .and_then(|span| normalize(span, &attrs, source, now_unix_ms))
+                    .and_then(|span| normalize(span, &attrs, source, now_unix_ms, historical))
                 {
                     Ok(event) => {
                         if event.metric_session_reported == Some(false) {

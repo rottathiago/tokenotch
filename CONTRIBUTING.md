@@ -31,6 +31,7 @@ generated build output, credentials, machine-local files or personal diagnostics
 | VS Code companion | Node 22.12+ and npm; dependencies are pinned in its lockfile. Real-client checks require a supported local VS Code installation/profile. |
 | Optional Xcode project | XcodeGen, in addition to native prerequisites. |
 | Regenerating artwork | Python 3 with Pillow and macOS `iconutil`; not required just to check existing artwork. |
+| Windows desktop | Windows 11 24H2+, pinned Rust/MSVC, PowerShell 7, WebView2 and 7-Zip for packaging; see [Windows builds](windows/README.md). |
 
 Install the locked documentation dependencies once:
 
@@ -53,6 +54,7 @@ Update tool pins and lockfiles together when intentionally upgrading them.
 | `sources/Hook` | Bounded, content-stripping native helper |
 | `integrations/CopilotUsage` | CLI usage/context extension |
 | `integrations/VSCode` | Consent-based local setup companion and isolated tests |
+| `windows/core`, `windows/platform`, `windows/desktop` | Shared Windows contracts, native collection/storage services and Tauri presentation |
 | `tests`, `scripts` | XCTest/shared fixtures, smoke checks and packaging |
 | `config`, `docs` | Release identity, user guidance and technical contracts |
 
@@ -121,8 +123,11 @@ Required checks have no workflow path filters: every PR receives both check
 results. When a change touches only documentation (Markdown, `docs/` except the
 brand logo sources, documentation tooling and templates), the native `test` job
 is skipped, which GitHub reports as passing; any other file runs the full native
-suite. Native CI builds development installers
-for verification but does not publish them or receive signing secrets.
+suite. Windows CI builds explicitly unsigned local installers with
+`.\windows\scripts\package.ps1 -Architecture <x64|arm64> -AllowUnsigned`;
+it does not publish them or receive signing secrets. Native architecture checks
+remain mandatory. See [Windows builds](windows/README.md) for isolated debug
+smoke checks and the separate installation/desktop acceptance gates.
 
 ## Contracts, privacy and accessibility
 

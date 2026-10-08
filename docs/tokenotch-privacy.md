@@ -303,6 +303,12 @@ after explicit sign-in consent and displays the identity reported by the runtime
 The CLI's documented fallback may store credentials in its private profile.
 Do not publish that profile. Disconnect is not credential revocation.
 
+On Windows, when Tokenotch's private profile is signed out, the same three
+read-only RPCs also run against your normal Copilot CLI profile (`COPILOT_HOME`,
+default `%USERPROFILE%\.copilot`) so an existing CLI sign-in can be reused without
+a second browser login. Tokenotch still never receives a token; **Disconnect**
+stops quota refreshes and leaves that CLI sign-in untouched.
+
 Optional public service health requests use
 `https://www.githubstatus.com/api/v2/summary.json`. It uses an ephemeral session,
 15-second request timeout, a 256 KiB response bound and a five-minute retry floor.
