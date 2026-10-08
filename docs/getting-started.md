@@ -1,7 +1,9 @@
 # Getting started with Tokenotch
 
-This guide covers installing Tokenotch, connecting your first Copilot client,
-and keeping the app up to date. For a short overview, see the [README](../README.md).
+This guide covers installing Tokenotch on **macOS**, connecting your first Copilot
+client, and keeping the app up to date. For a short overview, see the
+[README](../README.md). For Windows downloads, installation and setup, see the
+[Windows guide](../windows/README.md#download-windows).
 
 ## Requirements
 
@@ -79,8 +81,8 @@ while it was running. Usage from before Tokenotch was started, from other
 machines, or from unsupported clients is not included and is not backfilled.
 For official usage, limits and billing, check GitHub or your enterprise dashboard.
 
-Remote SSH, containers, WSL, Codespaces, cloud agents, other IDEs/providers, and
-Windows are outside 1.0.0. See the [feature reference](features.md) and
+Remote SSH, containers, WSL, Codespaces, cloud agents and other IDEs/providers
+are outside 1.0.0. See the [feature reference](features.md) and
 [integration contracts](tokenotch-integrations.md).
 VS Code lifecycle coverage targets the Local harness; Agent Host usage is
 separate telemetry, not a promise of lifecycle or attention parity.

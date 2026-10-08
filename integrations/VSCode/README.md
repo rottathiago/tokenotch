@@ -1,6 +1,6 @@
 # Tokenotch local VS Code companion
 
-An inert-until-invoked, public-API setup and diagnostics extension for **local macOS or Windows VS Code 1.138.0 or newer**. Windows support is development-only; see the [Windows acceptance gates](../../windows/README.md#remaining-parity-and-acceptance-gates). Extension ID: `rottathiago.tokenotch-vscode`; extension kind: `ui`. Runtime: CommonJS and built-in Node modules only. No private Copilot APIs, network requests, receiver probes, model inference, environment changes, telemetry of its own, or automatic configuration on activation.
+An inert-until-invoked, public-API setup and diagnostics extension for **local macOS or Windows VS Code 1.138.0 or newer**. Windows ships with the unsigned [Windows 1.0.0 release](../../windows/README.md#download-windows); see the [Windows acceptance gates](../../windows/README.md#remaining-parity-and-acceptance-gates) for what remains unverified. Extension ID: `rottathiago.tokenotch-vscode`; extension kind: `ui`. Runtime: CommonJS and built-in Node modules only. No private Copilot APIs, network requests, receiver probes, model inference, environment changes, telemetry of its own, or automatic configuration on activation.
 
 ## Build and package
 
