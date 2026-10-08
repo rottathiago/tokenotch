@@ -8,7 +8,7 @@
 
 # Tokenotch
 
-**Your AI coding usage, at a glance, right in your Mac's notch.**
+**Your AI coding usage, at a glance, right in your Mac's notch or on your Windows desktop.**
 
 Track tokens, models and live Copilot sessions across GitHub Copilot CLI and
 VS Code, and get a nudge the moment a session needs you.
@@ -16,6 +16,8 @@ VS Code, and get a nudge the moment a session needs you.
 [![Latest release](https://img.shields.io/github/v/release/rottathiago/tokenotch?label=release&color=111111)](https://github.com/rottathiago/tokenotch/releases/latest)
 [![macOS 15+](https://img.shields.io/badge/macOS-15%2B-111111?logo=apple)](docs/getting-started.md#requirements)
 [![Apple Silicon + Intel](https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-555555)](docs/getting-started.md#requirements)
+[![Windows 11 24H2+](https://img.shields.io/badge/Windows-11%2024H2%2B-0078D4)](windows/README.md#download-windows)
+[![x64 + ARM64](https://img.shields.io/badge/x64%20%2B%20ARM64-native-555555)](windows/README.md#download-windows)
 [![MIT license](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
 [![CI](https://github.com/rottathiago/tokenotch/actions/workflows/ci.yml/badge.svg)](https://github.com/rottathiago/tokenotch/actions/workflows/ci.yml)
 
@@ -45,7 +47,8 @@ VS Code, and get a nudge the moment a session needs you.
 
 ## What is Tokenotch?
 
-Tokenotch is a small macOS app that lives in your screen's notch. It quietly
+Tokenotch is a small app for **macOS and Windows** that lives in your screen's
+notch (on Windows, a notch-style widget at the edge of your desktop). It quietly
 watches the GitHub Copilot sessions you run in **Copilot CLI** and **VS Code**,
 then turns what it sees into simple stats: how many tokens you use, which
 models you use them on, how full each session's context window is, and which
@@ -62,7 +65,7 @@ No dashboards to open, no tabs to refresh. Glance up and you know.
 | 🔔 | **Never miss a prompt** | Run several agents at once; Tokenotch tells you when one is done or needs your input. |
 | 📏 | **Context before it's too late** | A context-window bar under every session shows how close it is to the limit. |
 | 📈 | **Spot your patterns** | Optional history with daily token charts, model share and response times. |
-| 🔒 | **Private by design** | No backend, no analytics. Prompts and code are never stored; everything stays on your Mac. |
+| 🔒 | **Private by design** | No backend, no analytics. Prompts and code are never stored; everything stays on your Mac or PC. |
 
 ## See it in action
 
@@ -89,7 +92,7 @@ happens while it is switched on, so you can see where the miles go.
 
 ```mermaid
 flowchart LR
-    subgraph mac["Your Mac"]
+    subgraph mac["Your Mac or Windows PC"]
         cli["Copilot CLI"]
         vsc["VS Code"]
         helper["Tokenotch helper<br/>keeps only numbers<br/>and model names"]
@@ -102,7 +105,7 @@ flowchart LR
 ```
 
 1. **Your Copilot tools report activity.** While you work, Copilot CLI and
-   VS Code emit small usage events on your Mac, such as "this call used model X
+   VS Code emit small usage events on your computer, such as "this call used model X
    and N tokens". After you approve it in setup, Tokenotch connects a small
    extension to the CLI and a local listener to VS Code to receive them.
 2. **Tokenotch keeps the numbers and drops the rest.** A local helper strips
@@ -110,7 +113,7 @@ flowchart LR
    anything is saved. Tokenotch does not read your log files or chat transcripts.
 3. **The numbers become stats.** Tokenotch adds the numbers up per session, per
    model and per day, and shows them in the notch. If you turn on history, daily
-   totals are saved in a private folder on your Mac.
+   totals are saved in a private folder on your computer.
 
 Want the full picture? The [architecture overview](docs/architecture.md) walks
 through every step with diagrams and links to the code, so you can verify it
@@ -150,21 +153,25 @@ yourself.
 
 | | Requirement | Notes |
 | :---: | --- | --- |
-| 💻 | **macOS 15 or later** | Apple Silicon or Intel |
+| 🍎 | **macOS 15 or later** | Apple Silicon or Intel |
+| 🪟 | **Windows 11 24H2 (build 26100) or later** | Native x64 or ARM64; WebView2 runtime (setup can download it) |
 | 🤖 | **GitHub Copilot** | An active Copilot plan on your GitHub account |
-| ⌨️ | **GitHub Copilot CLI** and/or **VS Code** | At least one, installed on the same Mac. VS Code 1.138.0 or later |
+| ⌨️ | **GitHub Copilot CLI** and/or **VS Code** | At least one, installed on the same computer. VS Code 1.138.0 or later |
 | 📊 | **Copilot CLI sign-in** *(optional)* | Needed only to show your official premium request usage; uses the Copilot CLI even if you code in VS Code |
 
-Releases are currently unsigned, so macOS may block the first launch. If you
-trust the download, choose **Open Anyway** in **System Settings > Privacy &
-Security** ([why?](docs/support.md#unsigned-downloads)). Installation, setup,
-updates and uninstalling are covered in [Getting started](docs/getting-started.md)
-and [Support](docs/support.md).
+Releases are currently unsigned, so your operating system may warn you or block
+the first launch. If you trust the download:
 
-For Windows 11 24H2+ (x64 or ARM64), see the
-[Windows downloads and installation notes](windows/README.md#download-windows).
-Windows 1.0.0 is a separate unsigned public release; downloading its installers
-does not require GitHub sign-in.
+- **macOS:** choose **Open Anyway** in **System Settings > Privacy & Security**
+  ([why?](docs/support.md#unsigned-downloads)). Installation, setup, updates and
+  uninstalling are covered in [Getting started](docs/getting-started.md) and
+  [Support](docs/support.md).
+- **Windows:** run the downloaded `Tokenotch-1.0.0-windows-<x64|arm64>-setup.exe`
+  after comparing its SHA-256 with the matching `.exe.sha256` release file.
+  Setup is per-user, and Windows may show a reputation (SmartScreen) warning
+  because the installer is not code-signed. Never disable Windows protections.
+  Connection steps, checksums and removal are in the
+  [Windows guide](windows/README.md#download-windows).
 
 ## Privacy
 
@@ -192,16 +199,7 @@ yourself? The [architecture overview](docs/architecture.md) covers:
 Tokenotch is actively developed and **will be updated as new features ship**.
 On the way:
 
-- 🪟 **Windows parity**: public installers are available; full feature parity and broader hardware/client acceptance remain in progress.
 - 🔌 **More providers**: support for more AI coding assistants and tools.
-
-The [Windows implementation and downloads](windows/README.md) use Rust, Tauri 2 and
-JavaScript, targeting native x64 and ARM64. It now includes consent-based local
-connections, usage, account quota, optional history/timelines and Windows
-notifications. Regular unsigned Windows 1.0.0 installers and checksums are
-available from [GitHub Releases](https://github.com/rottathiago/tokenotch/releases/tag/v1.0.0-windows).
-Full feature parity and broader desktop/real-client acceptance remain in
-progress; public availability does not imply Microsoft certification.
 
 ⭐ **Star** the repo and choose **Watch > Custom > Releases** to hear about each
 new version. You can also use **Check for Updates** in the app at any time.
@@ -213,7 +211,9 @@ Contributions of all sizes are welcome: bug reports, ideas, docs and code.
 - 🐛 **Found a bug or have an idea?** [Open an issue](https://github.com/rottathiago/tokenotch/issues/new/choose).
 - 📝 **Docs changes** don't need Xcode; run `make metadata` and `make docs-check`
   to validate release notes, publication rules, and documentation.
-- 🛠️ **Code changes**: build with `make build` and test with `make test`.
+- 🛠️ **Code changes**: build with `make build` and test with `make test` (macOS).
+  The Rust/Tauri Windows app has its own build and test steps in the
+  [Windows guide](windows/README.md).
 
 Start with the [contributing guide](CONTRIBUTING.md), the
 [feature reference](docs/features.md) and [release readiness](TASKS.md).
