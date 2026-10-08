@@ -22,8 +22,13 @@ VS Code, and get a nudge the moment a session needs you.
 <a href="https://github.com/rottathiago/tokenotch/releases/latest/download/Tokenotch.dmg">
   <img src="docs/design/download-macos.png" width="300" alt="Download Tokenotch for macOS">
 </a>
+<a href="windows/README.md#download-windows-preview">
+  <img src="docs/design/download-windows.png" width="300" alt="Download Tokenotch for Windows (preview)">
+</a>
 
-<sub>Free and open source · macOS 15+ · <a href="https://github.com/rottathiago/tokenotch/releases">All releases</a></sub>
+<sub>Free and open source · macOS 15+ · Windows 11 24H2+ (preview) · <a href="https://github.com/rottathiago/tokenotch/releases">All releases</a></sub>
+
+<p><sub>Windows downloads are unsigned preview builds for x64 and ARM64. GitHub sign-in is required.</sub></p>
 
 <p>
   <a href="#why-tokenotch">Why Tokenotch</a> ·
@@ -156,6 +161,10 @@ Security** ([why?](docs/support.md#unsigned-downloads)). Installation, setup,
 updates and uninstalling are covered in [Getting started](docs/getting-started.md)
 and [Support](docs/support.md).
 
+For Windows 11 24H2+ (x64 or ARM64), see the
+[Windows preview downloads and installation notes](windows/README.md#download-windows-preview).
+These unsigned CI builds are separate from the supported macOS release.
+
 ## Privacy
 
 Tokenotch has **no backend, no analytics and no automatic crash reporting**. Prompts,
@@ -182,15 +191,17 @@ yourself? The [architecture overview](docs/architecture.md) covers:
 Tokenotch is actively developed and **will be updated as new features ship**.
 On the way:
 
-- 🪟 **Windows port**: Tokenotch beyond the Mac.
+- 🪟 **Windows release readiness**: preview builds are available; full parity and release acceptance remain in progress.
 - 🔌 **More providers**: support for more AI coding assistants and tools.
 
-The [Windows implementation and local production builds](windows/README.md) use Rust, Tauri 2 and
+The [Windows implementation and preview builds](windows/README.md) use Rust, Tauri 2 and
 JavaScript, targeting native x64 and ARM64. It now includes consent-based local
 connections, usage, account quota, optional history/timelines and Windows
-notifications. Windows 1.0.0 can be packaged as an explicitly unsigned local
-production installer. Full feature parity and native ARM64/real-client/release
-acceptance remain in progress; macOS remains the supported public download.
+notifications. Unsigned Windows 1.0.0 installers are available from
+[GitHub Actions](windows/README.md#download-windows-preview); downloads require
+GitHub sign-in and expire with the CI artifacts. Full feature parity and native
+ARM64/real-client/release acceptance remain in progress; macOS remains the
+supported release.
 
 ⭐ **Star** the repo and choose **Watch > Custom > Releases** to hear about each
 new version. You can also use **Check for Updates** in the app at any time.
