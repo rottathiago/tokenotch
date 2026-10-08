@@ -268,6 +268,27 @@ async fn imports_recheck_approval_and_file_before_writing() {
 }
 
 #[test]
+fn private_file_preparation_preserves_existing_contents() {
+    let f = Fixture::new();
+    let path = f.store.prepare_file("prepared.sqlite").unwrap();
+    assert_eq!(f.store.read("prepared.sqlite", 1024).unwrap(), Some(vec![]));
+    fs::write(&path, b"existing bytes").unwrap();
+    assert_eq!(f.store.prepare_file("prepared.sqlite").unwrap(), path);
+    assert_eq!(
+        f.store.read("prepared.sqlite", 1024).unwrap(),
+        Some(b"existing bytes".to_vec())
+    );
+    assert!(f.store.prepare_file("..\\outside").is_err());
+    #[cfg(windows)]
+    {
+        let link = f.root.join("linked.sqlite");
+        fs::hard_link(&path, &link).unwrap();
+        assert!(f.store.prepare_file("linked.sqlite").is_err());
+        fs::remove_file(link).unwrap();
+    }
+}
+
+#[test]
 fn private_files_round_trip_and_reject_traversal() {
     let f = Fixture::new();
     f.store

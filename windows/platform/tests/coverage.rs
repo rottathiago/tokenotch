@@ -21,7 +21,7 @@ impl Fixture {
         let root =
             std::env::temp_dir().join(format!("tokenotch-coverage-{}", random_id().unwrap()));
         let store = Store::open(root.clone()).unwrap();
-        let db = Connection::open(store.path("usage.sqlite").unwrap()).unwrap();
+        let db = Connection::open(store.prepare_file("usage.sqlite").unwrap()).unwrap();
         db.execute_batch("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
             .unwrap();
         db.execute("INSERT INTO metadata VALUES ('zone',?1)", [zone])

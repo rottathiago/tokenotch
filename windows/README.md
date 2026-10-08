@@ -117,6 +117,10 @@ is capped.
 ### Storage and limits
 
 `%USERPROFILE%\.tokenotch` is created with a protected current-user-only DACL.
+New private files and the archive database receive the same explicit user owner
+and DACL instead of relying on the launcher's default file owner, which can be
+the Administrators group in elevated builds. Preparing an existing database never
+truncates it or changes its permissions.
 Unsafe existing permissions, links/reparse points and invalid files fail explicitly;
 the application does not silently repair or replace unowned data.
 The helper hashes identifiers and discards content before pipe delivery. It checks

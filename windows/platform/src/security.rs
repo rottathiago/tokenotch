@@ -2,13 +2,16 @@ use crate::storage::Result;
 use std::{
     ffi::c_void,
     fs::File,
-    os::windows::{ffi::OsStrExt, io::AsRawHandle},
+    os::windows::{
+        ffi::OsStrExt,
+        io::{AsRawHandle, FromRawHandle},
+    },
     path::Path,
 };
 use windows::{
     core::{PCWSTR, PWSTR},
     Win32::{
-        Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL},
+        Foundation::{CloseHandle, LocalFree, GENERIC_READ, GENERIC_WRITE, HANDLE, HLOCAL},
         Security::{
             Authorization::{
                 ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
@@ -19,7 +22,9 @@ use windows::{
             SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
         },
         Storage::FileSystem::{
-            CreateDirectoryW, GetFileInformationByHandle, MoveFileExW, BY_HANDLE_FILE_INFORMATION,
+            CreateDirectoryW, CreateFileW, GetFileInformationByHandle, MoveFileExW,
+            BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_NORMAL, FILE_CREATION_DISPOSITION,
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
             MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
         },
         System::{
@@ -127,6 +132,25 @@ pub fn create_directory(path: &Path) -> Result<()> {
     let descriptor = Descriptor::private()?;
     unsafe { CreateDirectoryW(PCWSTR(wide(path).as_ptr()), Some(&descriptor.attributes())) }
         .map_err(|_| "Private Windows directory could not be created.".into())
+}
+
+pub(crate) fn open_private_file(path: &Path, creation: FILE_CREATION_DISPOSITION) -> Result<File> {
+    let descriptor = Descriptor::private()?;
+    let handle = unsafe {
+        CreateFileW(
+            PCWSTR(wide(path).as_ptr()),
+            GENERIC_READ.0 | GENERIC_WRITE.0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            Some(&descriptor.attributes()),
+            creation,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+            None,
+        )
+    }
+    .map_err(|_| "Private Windows file could not be opened.")?;
+    let file = unsafe { File::from_raw_handle(handle.0) };
+    check_file(&file)?;
+    Ok(file)
 }
 
 unsafe fn verify_descriptor(

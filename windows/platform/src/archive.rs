@@ -203,7 +203,7 @@ impl Archive {
                 crate::security::check_path(&path)?;
             }
         }
-        let db = Connection::open(store.path("usage.sqlite")?).map_err(db_error)?;
+        let db = Connection::open(store.prepare_file("usage.sqlite")?).map_err(db_error)?;
         db.busy_timeout(std::time::Duration::from_secs(2))
             .map_err(db_error)?;
         db.execute_batch("PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;

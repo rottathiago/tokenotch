@@ -315,7 +315,7 @@ struct CopilotSummaryContent: View {
     }
 
     private var models: some View {
-        VStack(alignment: .leading, spacing: tight) {
+        VStack(alignment: .leading, spacing: 2 * scale) {
             sectionHeading("Models Breakdown")
             switch presentation.usageSource {
             case .loading:

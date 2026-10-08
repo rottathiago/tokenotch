@@ -117,6 +117,36 @@ impl Store {
         Ok(path)
     }
 
+    pub fn prepare_file(&self, name: &str) -> Result<PathBuf> {
+        let path = self.path(name)?;
+        #[cfg(windows)]
+        let file = super::security::open_private_file(
+            &path,
+            windows::Win32::Storage::FileSystem::OPEN_ALWAYS,
+        )?;
+        #[cfg(not(windows))]
+        let file = {
+            use std::os::unix::fs::OpenOptionsExt;
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(&path)
+                .map_err(|_| "Private file could not be prepared.")?
+        };
+        if !file
+            .metadata()
+            .map_err(|_| "Private file could not be inspected.")?
+            .is_file()
+        {
+            return Err("Private storage entry is not a regular file.".into());
+        }
+        Ok(path)
+    }
+
     pub fn read(&self, name: &str, limit: usize) -> Result<Option<Vec<u8>>> {
         let path = self.path(name)?;
         let mut options = OpenOptions::new();
@@ -177,17 +207,22 @@ impl Store {
             super::security::check_path(&path)?;
         }
         let temp = self.root.join(format!(".write-{}", random_id()?));
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
         let result = (|| {
-            let mut file = options
-                .open(&temp)
-                .map_err(|_| "Private file could not be created.")?;
+            #[cfg(windows)]
+            let mut file = super::security::open_private_file(
+                &temp,
+                windows::Win32::Storage::FileSystem::CREATE_NEW,
+            )?;
+            #[cfg(not(windows))]
+            let mut file = {
+                use std::os::unix::fs::OpenOptionsExt;
+                OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&temp)
+                    .map_err(|_| "Private file could not be created.")?
+            };
             file.write_all(bytes)
                 .and_then(|_| file.sync_all())
                 .map_err(|_| "Private file could not be saved.")?;
