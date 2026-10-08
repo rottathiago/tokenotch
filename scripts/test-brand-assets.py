@@ -88,6 +88,25 @@ class BrandAssetTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no tile"):
             brand.icon_tile(Image.new("RGB", (10, 10), (255, 255, 255)))
 
+    def test_icon_tile_preserves_white_artwork_and_transparency(self):
+        artwork = Image.new("RGBA", (40, 40), (255, 255, 255, 0))
+        ImageDraw.Draw(artwork).rounded_rectangle(
+            (5, 5, 34, 34), 8, fill=(255, 255, 255, 255))
+        artwork.putpixel((5, 13), (255, 255, 255, 128))
+        self.assert_image_equal(brand.icon_tile(artwork), artwork.crop((5, 5, 35, 35)))
+
+    def test_icon_tile_rejects_fully_transparent_artwork(self):
+        with self.assertRaisesRegex(ValueError, "no visible artwork"):
+            brand.icon_tile(Image.new("RGBA", (40, 40), (255, 255, 255, 0)))
+
+    def test_app_icon_preserves_white_tile_and_transparent_margins(self):
+        artwork = Image.new("RGBA", (40, 40), (255, 255, 255, 0))
+        ImageDraw.Draw(artwork).rounded_rectangle(
+            (5, 5, 34, 34), 8, fill=(255, 255, 255, 255))
+        icon = brand.app_icon(artwork, 128)
+        self.assertEqual(icon.getpixel((64, 64)), (255, 255, 255, 255))
+        self.assertEqual(icon.getpixel((0, 0))[3], 0)
+
     def test_generated_assets_match_source(self):
         with Image.open(brand.SOURCE) as source:
             logo = source.convert("RGBA")

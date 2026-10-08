@@ -315,7 +315,7 @@ struct CopilotSummaryContent: View {
     }
 
     private var models: some View {
-        VStack(alignment: .leading, spacing: tight) {
+        VStack(alignment: .leading, spacing: 0) {
             sectionHeading("Models Breakdown")
             switch presentation.usageSource {
             case .loading:
@@ -338,9 +338,10 @@ struct CopilotSummaryContent: View {
                         .help("\(row.title): \(row.tokens.formatted()) observed tokens / \(row.calls.formatted()) calls. \(row.input.formatted()) \(row.breakdown.inputLabel), \(row.output.formatted()) output. \(row.breakdown.details)")
                         .accessibilityLabel("\(row.title), \(row.tokens) observed tokens, \(row.calls) calls, \(row.input) \(row.breakdown.inputLabel), \(row.output) output tokens. \(row.breakdown.details) Open details")
                     }
-                    if totals.breakdown.read.state == .partial || totals.breakdown.write.state == .partial {
-                        Text("* Input breakdown incomplete")
+                    if totals.breakdown.isIncomplete || presentation.modelRows.contains(where: { $0.breakdown.isIncomplete }) {
+                        Text("* Some calls did not report cache tokens")
                             .font(type.cardSecondary).foregroundStyle(Palette.secondary)
+                            .help("Starred input may include unreported cache activity; starred cache counts cover only the calls that reported them.")
                     }
                     if presentation.canExpandModels { disclosure }
                 } else {
@@ -377,7 +378,7 @@ struct CopilotSummaryContent: View {
     func breakdown(input: Int64, output: Int64, coverage: TokenBreakdown) -> some View {
         Grid(alignment: .leading, horizontalSpacing: 10 * scale, verticalSpacing: 0) {
             GridRow {
-                modelMetric(coverage.isIncomplete ? "Input*" : "Input", NotchPresentation.compact(input),
+                modelMetric("Input", NotchPresentation.compact(input) + (coverage.isIncomplete ? "*" : ""),
                             color: Palette.tokenInput)
                 modelMetric("Output", NotchPresentation.compact(output), color: Palette.tokenOutput)
             }

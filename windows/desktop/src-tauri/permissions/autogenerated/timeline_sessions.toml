@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-timeline-sessions"
+description = "Enables the timeline_sessions command without any pre-configured scope."
+commands.allow = ["timeline_sessions"]
+
+[[permission]]
+identifier = "deny-timeline-sessions"
+description = "Denies the timeline_sessions command without any pre-configured scope."
+commands.deny = ["timeline_sessions"]

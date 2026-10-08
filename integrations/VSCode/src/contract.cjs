@@ -24,7 +24,7 @@ const MESSAGES = Object.freeze({
   configured: 'Tokenotch settings are configured. Reload may be needed; actual telemetry delivery must be verified in Tokenotch.',
   removed: 'Requested Tokenotch-owned settings were removed or restored. User-edited settings were preserved; a reload may be needed.',
   cancelled: 'Tokenotch setup was cancelled. No settings were changed.',
-  remote: 'Tokenotch setup is local-only. Open a local macOS VS Code window.',
+  remote: 'Tokenotch setup is local-only. Open a local macOS or Windows VS Code window.',
   request: 'No valid private setup request is available. Create a new request in Tokenotch.',
   expired: 'The Tokenotch setup request expired or is not fresh. Create a new request in Tokenotch.',
   nonce: 'The setup link does not match the private Tokenotch request. Create a new request in Tokenotch.',

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-companion-path"
+description = "Enables the companion_path command without any pre-configured scope."
+commands.allow = ["companion_path"]
+
+[[permission]]
+identifier = "deny-companion-path"
+description = "Denies the companion_path command without any pre-configured scope."
+commands.deny = ["companion_path"]

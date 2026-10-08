@@ -2,14 +2,15 @@
 
 const os = require('node:os');
 const { PrivateStore } = require('./private-store.cjs');
+const { WindowsStore } = require('./windows-store.cjs');
 const { Settings, environmentOverrideNames, hasDiscardOnlyExporter } = require('./settings.cjs');
 const { Ownership } = require('./ownership.cjs');
 const { MESSAGES, SafeError, assertFresh, uriNonce } = require('./contract.cjs');
 
 const DISCARD_ONLY_NOTE = 'A discard-only SDK exporter setting is present; VS Code can create it internally. Tokenotch leaves it unchanged. Reload VS Code after setup and verify actual usage in Tokenotch. If this setting was inherited from your launcher, it may still suppress delivery.';
 
-function environmentOverrideDetail(environment, configuration) {
-  const names = environmentOverrideNames(environment, configuration);
+function environmentOverrideDetail(environment, configuration, platform) {
+  const names = environmentOverrideNames(environment, configuration, platform);
   const displayed = names.slice(0, 32).map(name =>
     /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) ? name : '[nonstandard variable name hidden]');
   if (names.length > displayed.length) displayed.push(`${names.length - displayed.length} additional variable names omitted.`);
@@ -18,7 +19,7 @@ function environmentOverrideDetail(environment, configuration) {
     ...displayed,
     '',
     'These variables may override Tokenotch settings. Remove them only if they are not needed, at their source (for example, a shell startup file, launcher, or managed environment). Tokenotch will not change them.',
-    'Fully quit all VS Code windows with Cmd+Q, reopen VS Code from the corrected environment, then retry setup under Connections > Visual Studio Code in Tokenotch. Reload Window or unsetting a variable in an already-open terminal does not clear the parent environment.',
+    `Fully quit all VS Code windows${platform === 'darwin' ? ' with Cmd+Q' : ' with File > Exit'}, reopen VS Code from the corrected environment, then retry setup under Connections > Visual Studio Code in Tokenotch. Reload Window or unsetting a variable in an already-open terminal does not clear the parent environment.`,
     'If these variables are intentional or managed, leave model & token usage off. Activity-only setup can still be used without metrics.'
   ].join('\n');
 }
@@ -29,20 +30,21 @@ class Companion {
     this.platform = options.platform ?? process.platform;
     this.environment = options.environment ?? process.env;
     this.now = options.now ?? Date.now;
-    this.store = options.store ?? new PrivateStore(options.home ?? os.homedir());
+    this.store = options.store ?? (this.platform === 'win32' ?
+      new WindowsStore(options.home ?? os.homedir()) : new PrivateStore(options.home ?? os.homedir()));
     this.ownership = new Ownership(vscode, options.context);
     this.running = false;
   }
 
   assertLocal() {
-    if (this.vscode.env.remoteName || this.platform !== 'darwin') throw new SafeError('remote');
+    if (this.vscode.env.remoteName || !['darwin', 'win32'].includes(this.platform)) throw new SafeError('remote');
   }
 
   settings() {
-    const configuration = this.vscode.workspace.getConfiguration();
-    const scopes = [configuration, ...(this.vscode.workspace.workspaceFolders || [])
+    const configuration = () => this.vscode.workspace.getConfiguration();
+    const scopes = () => [configuration(), ...(this.vscode.workspace.workspaceFolders || [])
       .map(folder => this.vscode.workspace.getConfiguration(undefined, folder.uri))];
-    return new Settings(configuration, this.vscode.ConfigurationTarget.Global, scopes, this.environment);
+    return new Settings(configuration, this.vscode.ConfigurationTarget.Global, scopes, this.environment, this.platform);
   }
 
   async run({ uri, operation } = {}) {
@@ -74,7 +76,7 @@ class Companion {
       let detail = request.operation === 'configure' ?
         `Allow Tokenotch to configure ${features} in this window's user profile settings? Metrics use only the private local receiver, without content capture. Existing external collectors and headers are not replaced. Other settings are preserved.` :
         `Allow Tokenotch to remove ${features} from this window's user profile? Only unchanged fields owned by this installation/profile are restored. Other hook entries, user edits, and unselected features are preserved.`;
-      if (request.operation === 'configure' && request.metrics && hasDiscardOnlyExporter(this.environment)) {
+      if (request.operation === 'configure' && request.metrics && hasDiscardOnlyExporter(this.environment, this.platform)) {
         detail += `\n\n${DISCARD_ONLY_NOTE}`;
       }
       const approval = await this.vscode.window.showInformationMessage('Tokenotch local integration', { modal: true, detail }, action);
@@ -97,7 +99,7 @@ class Companion {
       result = error instanceof SafeError ?
         { status: error.status, message: error.message } : { status: 'failed', message: MESSAGES.failed };
       if (error instanceof SafeError && error.code === 'environment') {
-        environmentDetail = environmentOverrideDetail(this.environment, this.vscode.workspace.getConfiguration());
+        environmentDetail = environmentOverrideDetail(this.environment, this.vscode.workspace.getConfiguration(), this.platform);
       }
     } finally {
       if (request && result) {
@@ -139,11 +141,11 @@ class Companion {
       this.ownership.verify(await this.store.readReceipt());
       const diagnostics = this.settings().diagnostics();
       const reasons = diagnostics.reasons.map(code => MESSAGES[code]).join(' ');
-      const note = hasDiscardOnlyExporter(this.environment) ? ` ${DISCARD_ONLY_NOTE}` : '';
+      const note = hasDiscardOnlyExporter(this.environment, this.platform) ? ` ${DISCARD_ONLY_NOTE}` : '';
       const text = `Tokenotch public settings: Hooks: ${diagnostics.hooks}. Local: ${diagnostics.vscodeLocal}. Agent Host: ${diagnostics.vscodeCopilot}. ${reasons ? `${reasons} ` : ''}Settings do not verify live telemetry; check delivery in Tokenotch.${note}`;
       if (diagnostics.reasons.includes('environment')) {
         await this.vscode.window.showInformationMessage(text, { modal: true,
-          detail: environmentOverrideDetail(this.environment, this.vscode.workspace.getConfiguration()) });
+          detail: environmentOverrideDetail(this.environment, this.vscode.workspace.getConfiguration(), this.platform) });
       } else {
         await this.vscode.window.showInformationMessage(text);
       }

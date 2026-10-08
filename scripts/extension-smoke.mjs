@@ -9,6 +9,7 @@ const warnings = [];
 const callbacks = new Map();
 const children = [];
 let autoClose = true;
+const platform = process.argv[2] ?? process.platform;
 let clock = Date.now();
 class FixtureDate extends Date {
     constructor(...args) { super(...(args.length ? args : [clock])); }
@@ -16,12 +17,12 @@ class FixtureDate extends Date {
 }
 let interval;
 const timeouts = new Map();
-let timerID = 0;
+let unreferencedRetries = 0;
 let activityQueries = 0;
 let finishInitialActivity;
 let activityRead = () => new Promise((resolve) => { finishInitialActivity = resolve; });
 const context = vm.createContext({
-    process: { stderr: { write: (message) => warnings.push(message) } },
+    process: { platform, stderr: { write: (message) => warnings.push(message) } },
     Date: FixtureDate, Number, JSON, queueMicrotask,
     setInterval: (callback, delay) => {
         assert.equal(delay, 30_000);
@@ -29,9 +30,10 @@ const context = vm.createContext({
         return { unref() {} };
     },
     setTimeout: (callback, delay) => {
-        assert.equal(delay, 5000);
-        timeouts.set(++timerID, callback);
-        return timerID;
+        assert.ok([250, 500, 1000, 2000, 4000, 5000].includes(delay));
+        const timer = { unref() { unreferencedRetries++; } };
+        timeouts.set(timer, { callback, delay });
+        return timer;
     },
     clearTimeout: (id) => timeouts.delete(id),
 });
@@ -50,11 +52,12 @@ const dependencies = {
     },
     "node:child_process": {
         spawn: (path, args, options) => {
-            assert.equal(path, "/fixture/.tokenotch/TokenotchHook");
+            assert.equal(path, `/fixture/.tokenotch/${platform === "win32" ? "TokenotchHook.exe" : "TokenotchHook"}`);
             assert.equal(args[0], "cli");
             assert.ok(["usage", "context", "contextInvalidated", "compaction", "activity"].includes(args[1]));
             hooks.push(args[1]);
             assert.equal(options.timeout, 1000);
+            assert.equal(options.windowsHide, true);
             const child = new EventEmitter();
             children.push(child);
             child.stdin = new EventEmitter();
@@ -159,17 +162,21 @@ assert.equal(warnings.length, 1);
 autoClose = false;
 const before = payloads.length;
 for (let index = 0; index < 66; index++) {
-    emit("assistant.usage", { inputTokens: 1, outputTokens: 1 }, { id: `queued-${index}` });
+    emit("assistant.usage", { inputTokens: 100, outputTokens: 20 }, { id: `queued-${index}` });
 }
 assert.equal(payloads.length, before + 1);
-for (let index = 0; index < 65; index++) {
+for (let index = 0; index < 66; index++) {
     children.at(-1).emit("close", 0);
 }
-assert.equal(payloads.length, before + 65);
+assert.equal(payloads.length, before + 66, "A burst must retain every accounting event");
+assert.equal(payloads.slice(before).reduce((sum, p) => sum + p.inputTokens + p.outputTokens, 0), 7920);
+assert.equal(new Set(payloads.slice(before).map(p => p.eventId)).size, 66);
 autoClose = true;
 emit("session.usage_info", { currentTokens: 0, tokenLimit: 100 },
     { timestamp: new Date(clock + 1).toISOString() });
 children.at(-1).emit("error", new Error("private error must not leak"));
+await new Promise(queueMicrotask);
+retry(250);
 await new Promise(queueMicrotask);
 assert.equal(payloads.at(-1).currentTokens, 0);
 assert.equal(warnings.length, 1);
@@ -203,10 +210,16 @@ emit("session.compaction_complete", { success: "true" });
 await new Promise(queueMicrotask);
 assert.equal(payloads.length, count);
 assert.ok(!JSON.stringify(payloads).includes("never-forward"));
-console.log("PASS: CLI metrics extension validates tokens, latency and compaction, strips content, bounds its queue and handles delivery errors.");
+console.log("PASS: CLI metrics extension validates tokens, latency and compaction, strips content, preserves bursts and retries delivery errors.");
 
 async function settle() {
     await new Promise((resolve) => setImmediate(resolve));
+}
+function retry(delay) {
+    const [id, timer] = [...timeouts.entries()].at(-1);
+    assert.equal(timer.delay, delay);
+    timeouts.delete(id);
+    timer.callback();
 }
 interval();
 assert.equal(activityQueries, 1, "Never overlap activity RPCs");
@@ -253,7 +266,7 @@ activityRead = () => new Promise((resolve) => { finishSlowRead = resolve; });
 interval();
 const pendingCount = activityQueries;
 clock += 5000;
-for (const callback of timeouts.values()) callback();
+for (const { callback } of timeouts.values()) callback();
 interval();
 assert.equal(activityQueries, pendingCount, "A hung RPC cannot accumulate more pending reads");
 finishSlowRead({ hasActiveWork: true });
@@ -272,3 +285,59 @@ assert.equal(payloads.at(-1).cacheReadTokensReported, true, "Explicit zero must 
 assert.equal(payloads.at(-1).cacheWriteTokens, 0);
 assert.equal(payloads.at(-1).cacheWriteTokensReported, true, "Explicit zero writes must remain reported");
 console.log("PASS: live activity polling attaches mid-turn, survives long work, handles idle/stale/error states and excludes subagents.");
+
+autoClose = false;
+const usage = { inputTokens: 100, outputTokens: 20 };
+emit("assistant.usage", usage, { id: "retry-first", timestamp: new Date(clock).toISOString() });
+const original = payloads.at(-1);
+const attempts = payloads.length;
+children.at(-1).emit("error", new Error("private-spawn-error"));
+children.at(-1).emit("close", -1);
+emit("assistant.usage", usage, { id: "retry-second", timestamp: new Date(clock).toISOString() });
+assert.equal(payloads.length, attempts, "New events must not bypass delivery backoff");
+for (const [index, delay] of [250, 500, 1000, 2000, 4000, 5000, 5000].entries()) {
+    retry(delay);
+    assert.deepEqual(payloads.at(-1), original, "Retries keep the original timestamp, identity and counts");
+    if (index === 0) children.at(-1).stdin.emit("error", new Error("private-stdin-error"));
+    if (index < 6) children.at(-1).emit("close", index === 0 ? 0 : null);
+}
+children.at(-1).emit("close", 0);
+assert.equal(payloads.at(-1).eventId, "retry-second", "Successful delivery advances exactly once");
+children.at(-1).emit("close", 1);
+retry(250);
+assert.equal(payloads.at(-1).eventId, "retry-second", "A success resets retry backoff");
+children.at(-1).emit("close", 0);
+assert.equal(timeouts.size, 0, "A drained queue leaves no retry timer");
+assert.ok(unreferencedRetries >= 8, "Retry timers must not keep a detached CLI extension alive");
+assert.ok(!warnings.join("").includes("private-"));
+
+if (platform === "win32") {
+    emit("assistant.usage", usage, { id: "delayed", timestamp: new Date(clock).toISOString() });
+    const delayed = payloads.at(-1);
+    children.at(-1).emit("close", 1);
+    clock += 180_000;
+    interval();
+    await settle();
+    clock += 30_000;
+    interval();
+    await settle();
+    const recoveryCount = payloads.length;
+    retry(250);
+    assert.deepEqual(payloads.at(-1), delayed, "Windows usage survives delivery delays beyond two minutes");
+    children.at(-1).emit("close", 0);
+    assert.equal(hooks.at(-1), "activity");
+    assert.equal(payloads.at(-1).timestamp, clock, "Waiting activity polls coalesce to the latest snapshot");
+    children.at(-1).emit("close", 0);
+    assert.equal(payloads.length, recoveryCount + 2);
+}
+
+emit("assistant.usage", usage, { id: "expired", timestamp: new Date(clock).toISOString() });
+children.at(-1).emit("close", 1);
+clock += platform === "win32" ? 86_400_000 : 120_000;
+emit("assistant.usage", usage, { id: "after-expiry", timestamp: new Date(clock).toISOString() });
+retry(250);
+assert.equal(payloads.at(-1).eventId, "after-expiry", "Expired telemetry cannot block current delivery");
+children.at(-1).emit("close", 0);
+assert.match(warnings.at(-1), /expired.*totals may be incomplete/);
+assert.equal(timeouts.size, 0);
+console.log("PASS: failed/timeout/stdin deliveries retry with capped backoff and stable identities; expiration is explicit.");

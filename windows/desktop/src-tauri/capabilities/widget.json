@@ -1,6 +1,10 @@
 {
   "identifier": "widget",
-  "description": "The edge widget may expand itself and open the recovery window.",
-  "windows": ["widget"],
-  "permissions": ["allow-runtime-status", "allow-open-settings", "allow-set-expanded"]
+  "description": "The notch and its summary card may expand themselves, clip their click-through region and open the recovery window.",
+  "windows": ["widget", "widget-*", "card", "card-*"],
+  "permissions": ["allow-runtime-status", "allow-open-settings", "allow-set-expanded",
+    "allow-app-snapshot", "allow-acknowledge", "allow-history",
+    "allow-open-detail", "allow-timeline-detail", "allow-open-notification",
+    "allow-set-region", "allow-set-card-height", "allow-pointer-left", "allow-pointer-engaged", "allow-open-link",
+    "core:event:allow-listen", "core:event:allow-unlisten"]
 }

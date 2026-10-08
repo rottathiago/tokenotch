@@ -1,15 +1,21 @@
 import pathlib
 import hashlib
 import json
+import os
 import runpy
 import struct
+import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+import zipfile
+from unittest.mock import Mock, patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 pe = runpy.run_path(str(ROOT / "windows/scripts/verify-pe.py"))
 artifacts = runpy.run_path(str(ROOT / "windows/scripts/stage-artifacts.py"))
+installer = runpy.run_path(str(ROOT / "windows/scripts/verify-installer.py"))
 
 
 class PayloadChecks(unittest.TestCase):
@@ -81,26 +87,168 @@ class PayloadChecks(unittest.TestCase):
             (root / "config/Release.json").write_text(json.dumps({"version": "1.2.3"}))
             (root / "windows/config").mkdir(parents=True)
             (root / "windows/config/release.json").write_text(json.dumps({"channel": "development"}))
-            with patch.dict(artifacts["stage"].__globals__, ROOT=root):
-                for architecture, target in artifacts["TARGETS"].items():
-                    source = root / "windows/target" / target / "release/bundle/nsis"
-                    source.mkdir(parents=True)
-                    payload = f"synthetic {architecture} installer".encode()
-                    (source / "Tokenotch-setup.exe").write_bytes(payload)
-                    output = artifacts["stage"](architecture)
-                    self.assertEqual(output.name, f"Tokenotch-1.2.3-windows-{architecture}-development-setup.exe")
-                    self.assertEqual(output.read_bytes(), payload)
-                    self.assertEqual(output.with_suffix(".exe.sha256").read_text(),
-                                     f"{hashlib.sha256(payload).hexdigest()}  {output.name}\n")
-                    (source / "stale-setup.exe").write_bytes(b"stale")
-                    with self.assertRaises(ValueError):
-                        artifacts["stage"](architecture)
+            verify = Mock()
+            with patch.dict(artifacts["stage"].__globals__, ROOT=root, verify_installer=verify):
+                for channel, suffix in [("development", "-development"), ("release", "")]:
+                    (root / "windows/config/release.json").write_text(json.dumps({"channel": channel}))
+                    for architecture, target in artifacts["TARGETS"].items():
+                        source = root / "windows/target" / target / "release/bundle/nsis"
+                        source.mkdir(parents=True, exist_ok=True)
+                        payload = f"synthetic {architecture} {channel} installer".encode()
+                        built = source / "Tokenotch-setup.exe"
+                        built.write_bytes(payload)
+                        output = artifacts["stage"](architecture)
+                        verify.assert_called_with(built, architecture)
+                        self.assertEqual(output.name, f"Tokenotch-1.2.3-windows-{architecture}{suffix}-setup.exe")
+                        self.assertEqual(output.read_bytes(), payload)
+                        self.assertEqual(output.with_suffix(".exe.sha256").read_text(),
+                                         f"{hashlib.sha256(payload).hexdigest()}  {output.name}\n")
+                        stale = source / "stale-setup.exe"
+                        stale.write_bytes(b"stale")
+                        with self.assertRaises(ValueError):
+                            artifacts["stage"](architecture)
+                        stale.unlink()
+                (root / "windows/config/release.json").write_text(json.dumps({"channel": "unknown"}))
+                with self.assertRaisesRegex(ValueError, "channel"):
+                    artifacts["stage"]("x64")
+                (root / "windows/config/release.json").write_text(json.dumps({"channel": "release"}))
+                output.unlink()
+                output.with_suffix(".exe.sha256").unlink()
+                verify.side_effect = ValueError("stale payload")
+                with self.assertRaisesRegex(ValueError, "stale payload"):
+                    artifacts["stage"]("arm64")
+                self.assertFalse(output.exists())
+                self.assertFalse(output.with_suffix(".exe.sha256").exists())
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell 7 is required")
+    def test_unsigned_packaging_requires_explicit_opt_in(self):
+        result = subprocess.run(["pwsh", "-NoProfile", "-File",
+                                 str(ROOT / "windows/scripts/package.ps1"), "-Architecture", "x64"],
+                                capture_output=True, text=True, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Pass -AllowUnsigned", result.stderr)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell 7 is required")
+    def test_build_rejects_smoke_overrides_before_building(self):
+        script = (ROOT / "windows/scripts/build.ps1").read_text()
+        self.assertLess(script.index("if ($env:TAURI_CONFIG"), script.index("python scripts/release-config.py"))
+        if sys.platform != "win32":
+            self.skipTest("Native build guard requires Windows")
+        architecture = "arm64" if os.environ.get("PROCESSOR_ARCHITECTURE", "").lower() == "arm64" else "x64"
+        for variable in ["TAURI_CONFIG", "TOKENOTCH_TEST_HOME"]:
+            result = subprocess.run(["pwsh", "-NoProfile", "-File",
+                                     str(ROOT / "windows/scripts/build.ps1"), "-Architecture", architecture],
+                                    env={**os.environ, variable: "smoke-fixture"},
+                                    capture_output=True, text=True, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Remove smoke overrides explicitly", result.stderr)
 
     def test_installer_hook_uses_native_include_directory(self):
         hook = (ROOT / "windows/config/installer-hooks.nsh").read_text()
         self.assertIn('!addincludedir "${__FILEDIR__}"', hook)
         self.assertIn('!include "minimum-build.nsh"', hook)
         self.assertNotIn('${__FILEDIR__}/minimum-build.nsh', hook)
+
+
+class InstallerChecks(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="tokenotch-installer-test-")
+        self.addCleanup(temporary.cleanup)
+        self.root = pathlib.Path(temporary.name)
+        (self.root / "config").mkdir()
+        self.product = {"version": "1.0.0", "companionName": "tokenotch-vscode", "publisher": "rottathiago"}
+        (self.root / "config/Release.json").write_text(json.dumps(self.product))
+        (self.root / "windows/config").mkdir(parents=True)
+        (self.root / "windows/config/release.json").write_text('{"channel":"release"}')
+        (self.root / "LICENSE").write_bytes(b"license fixture")
+        (self.root / "integrations/VSCode").mkdir(parents=True)
+        self.companion = self.root / "integrations/VSCode/TokenotchVSCode.vsix"
+        self.write_companion()
+        self.patch = patch.dict(installer["verify"].__globals__, ROOT=self.root)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+
+    def write_companion(self, package_version="1.0.0", manifest_version="1.0.0"):
+        with zipfile.ZipFile(self.companion, "w") as archive:
+            archive.writestr("extension/package.json", json.dumps({
+                "name": "tokenotch-vscode", "publisher": "rottathiago", "version": package_version}))
+            archive.writestr("extension.vsixmanifest",
+                             '<PackageManifest xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">'
+                             f'<Metadata><Identity Id="tokenotch-vscode" Publisher="rottathiago" Version="{manifest_version}"/>'
+                             '</Metadata></PackageManifest>')
+
+    def test_companion_requires_matching_package_and_manifest_identity(self):
+        installer["verify_companion"](self.companion)
+        for package, manifest in [("0.1.0", "1.0.0"), ("1.0.0", "0.1.0")]:
+            self.write_companion(package, manifest)
+            with self.assertRaisesRegex(ValueError, "stale companion"):
+                installer["verify_companion"](self.companion)
+        self.write_companion()
+        stale = self.root / "stale.vsix"
+        shutil.copy2(self.companion, stale)
+        with zipfile.ZipFile(self.companion, "a") as archive:
+            archive.writestr("extension/current.js", "current content")
+        with self.assertRaisesRegex(ValueError, "current packaged extension"):
+            installer["verify_companion"](stale)
+
+    def test_companion_rejects_missing_or_oversized_metadata(self):
+        with zipfile.ZipFile(self.companion, "w") as archive:
+            archive.writestr("extension/package.json", "{}")
+        with self.assertRaisesRegex(ValueError, "missing"):
+            installer["verify_companion"](self.companion)
+        self.write_companion()
+        with zipfile.ZipFile(self.companion, "w") as archive:
+            archive.writestr("extension/package.json", " " * 65_537)
+        with self.assertRaisesRegex(ValueError, "oversized"):
+            installer["verify_companion"](self.companion)
+
+    def test_installer_rejects_missing_resources_and_stale_metadata(self):
+        payloads = {name: b"fixture" for name in installer["REQUIRED"]}
+        payloads["Tokenotch.exe"] = b"fixture__TAURI_BUNDLE_TYPE_VAR_NSStail"
+        binaries = self.root / "windows/target/x86_64-pc-windows-msvc/release"
+        binaries.mkdir(parents=True)
+        for name in ["Tokenotch.exe", "TokenotchHook.exe"]:
+            (binaries / name).write_bytes(payloads[name].replace(b"__TAURI_BUNDLE_TYPE_VAR_NSS", b"__TAURI_BUNDLE_TYPE_VAR_UNK"))
+        payloads.update({
+            "LICENSE": (self.root / "LICENSE").read_bytes(),
+            "Release.json": (self.root / "config/Release.json").read_bytes(),
+            "WindowsRelease.json": (self.root / "windows/config/release.json").read_bytes(),
+            "TokenotchVSCode.vsix": self.companion.read_bytes(),
+        })
+
+        def run(arguments, **kwargs):
+            if arguments[1] == "l":
+                return subprocess.CompletedProcess(arguments, 0, stdout="\n".join(f"Path = {name}" for name in payloads))
+            if arguments[1] == "x":
+                kwargs["stdout"].write(payloads[arguments[-1]])
+            return subprocess.CompletedProcess(arguments, 0)
+
+        with patch("shutil.which", return_value="7z"), patch("subprocess.run", side_effect=run), \
+                patch.dict(installer["pe"], verify=Mock(), verify_static_runtime=Mock()):
+            installer["verify"](self.root / "setup.exe", "x64")
+            for name in ["TokenotchHook.exe", "TokenotchVSCode.vsix", "WindowsRelease.json"]:
+                original = payloads.pop(name)
+                with self.assertRaisesRegex(ValueError, "missing"):
+                    installer["verify"](self.root / "setup.exe", "x64")
+                payloads[name] = original
+            for name in ["Release.json", "WindowsRelease.json"]:
+                original = payloads[name]
+                payloads[name] = b"{}"
+                with self.assertRaisesRegex(ValueError, f"stale {name}"):
+                    installer["verify"](self.root / "setup.exe", "x64")
+                payloads[name] = original
+            for name in ["Tokenotch.exe", "TokenotchHook.exe"]:
+                original = payloads[name]
+                payloads[name] = b"stale executable"
+                with self.assertRaisesRegex(ValueError, "current release executable"):
+                    installer["verify"](self.root / "setup.exe", "x64")
+                payloads[name] = original
+            payloads["Tokenotch.exe"] = (binaries / "Tokenotch.exe").read_bytes()
+            with self.assertRaisesRegex(ValueError, "current release executable"):
+                installer["verify"](self.root / "setup.exe", "x64")
+            (binaries / "Tokenotch.exe").write_bytes(payloads["Tokenotch.exe"] + b"__TAURI_BUNDLE_TYPE_VAR_UNK")
+            with self.assertRaisesRegex(ValueError, "unique Tauri bundle marker"):
+                installer["verify"](self.root / "setup.exe", "x64")
 
 
 if __name__ == "__main__":

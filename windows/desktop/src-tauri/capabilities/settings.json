@@ -1,6 +1,13 @@
 {
   "identifier": "settings",
-  "description": "Development settings may inspect runtime status and position the widget.",
+  "description": "Local settings manage explicitly approved connections and private observations.",
   "windows": ["settings"],
-  "permissions": ["allow-runtime-status", "allow-set-edge", "allow-set-widget-visible"]
+  "permissions": ["allow-runtime-status", "allow-set-edge", "allow-set-widget-visible", "allow-show-summary",
+    "allow-app-snapshot", "allow-set-preferences", "allow-displays", "allow-connection",
+    "allow-account-action", "allow-history", "allow-timelines", "allow-clear-data",
+    "allow-acknowledge", "allow-check-health", "allow-open-link", "allow-companion-path", "allow-install-companion",
+    "allow-choose-file", "allow-preview-import", "allow-commit-import",
+    "allow-take-detail", "allow-timeline-sessions", "allow-timeline-detail",
+    "allow-take-notification", "allow-open-notification", "allow-notification-status", "allow-test-notification",
+    "core:event:allow-listen", "core:event:allow-unlisten"]
 }

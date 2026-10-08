@@ -1,10 +1,10 @@
 param(
     [Parameter(Mandatory)][ValidateSet('x64', 'arm64')][string]$Architecture,
-    [switch]$Development
+    [switch]$AllowUnsigned
 )
 . "$PSScriptRoot/common.ps1"
+if (-not $AllowUnsigned) { throw 'Signing is not configured. Pass -AllowUnsigned to explicitly create an unsigned local installer.' }
 Assert-NativeWindows $Architecture
-if (-not $Development) { throw 'Only unsigned development packaging exists. Public release signing is not implemented.' }
 $target = Get-WindowsTarget $Architecture
 $root = (Resolve-Path "$PSScriptRoot/../..").Path
 Push-Location $root

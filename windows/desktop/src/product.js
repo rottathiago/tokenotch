@@ -12,5 +12,5 @@ export const product = Object.freeze({
   "installer": "nsis",
   "installMode": "currentUser",
   "dataDirectory": "Tokenotch",
-  "channel": "development"
+  "channel": "release"
 });

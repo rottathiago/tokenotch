@@ -123,7 +123,7 @@ flowchart TB
 
 | Threat | Mitigation | Code |
 | --- | --- | --- |
-| Prompt/code content ends up on disk | Allow-lists at the extension, helper and normalizer layers keep only numeric fields and a validated model name. No raw payloads are persisted. | [`extension.mjs` `assistant.usage`](../integrations/CopilotUsage/extension.mjs#L200-L232), [`HookNormalizer`](../sources/Core/Activity.swift#L123-L293), [`CopilotOTelNormalizer.allowedAttributes`](../sources/Core/CopilotOTelNormalizer.swift#L16-L22) |
+| Prompt/code content ends up on disk | Allow-lists at the extension, helper and normalizer layers keep only numeric fields and a validated model name. No raw payloads are persisted. | [`extension.mjs` `assistant.usage`](../integrations/CopilotUsage/extension.mjs#L228-L260), [`HookNormalizer`](../sources/Core/Activity.swift#L123-L293), [`CopilotOTelNormalizer.allowedAttributes`](../sources/Core/CopilotOTelNormalizer.swift#L16-L22) |
 | Another machine sends telemetry | The receiver binds to `127.0.0.1` only. | [`OTLPReceiver.start`](../sources/Core/OTLPReceiver.swift#L148-L191) |
 | Another local app posts fake telemetry | Each installation has a random 256-bit token in the URL path, and requests with a wrong token get `401`. Browser-style requests (`Origin` header) are rejected. | [`TelemetryConfiguration`](../sources/Core/OTLPReceiver.swift#L5-L25), [`OTLPRequest.parse`](../sources/Core/OTLPReceiver.swift#L32-L86) |
 | Another user writes to the socket | The socket has mode `0600`, and the app checks `getpeereid` that the peer has the same UID. A per-client registration secret is also required. | [`LocalBridge.start` / `receive`](../sources/Core/LocalBridge.swift#L65-L149) |
@@ -163,7 +163,7 @@ sequenceDiagram
 
     CLI->>EXT: assistant.usage { model, inputTokens, outputTokens,<br/>cacheReadTokens?, cacheWriteTokens?, duration?, timeToFirstTokenMs? }
     Note over EXT: Validate counts (safe ints, 0 to 1e9),<br/>cache ≤ input, model matches ^[a-zA-Z0-9._:/-]{1,128}$.<br/>Build a NEW object with only allowed fields.
-    EXT->>HOOK: spawn helper "cli usage", write JSON to stdin<br/>(queue ≤ 64, one at a time, 1 s timeout)
+    EXT->>HOOK: spawn helper "cli usage", write JSON to stdin<br/>(one at a time, 1 s timeout, retry on failure)
     Note over HOOK: ≤ 64 KiB, 500 ms deadline.<br/>Require usageContract = 1.<br/>session = SHA-256(sessionId)<br/>callID = SHA-256(sessionId:eventId)<br/>input = inputTokens − cacheRead − cacheWrite
     HOOK->>BR: {registration secret, ActivityEvent} over ~/.tokenotch/events.sock
     Note over BR: same-UID peer, secret matches,<br/>≤ 4 KiB, ≤ 30 msgs/s, timestamp fresh
@@ -175,12 +175,12 @@ sequenceDiagram
 
 The extension builds a new payload containing only the following fields. Nothing
 else from the Copilot event is copied
-([`extension.mjs#L200-L232`](../integrations/CopilotUsage/extension.mjs#L200-L232)):
+([`extension.mjs#L228-L260`](../integrations/CopilotUsage/extension.mjs#L228-L260)):
 
 | Field | Purpose |
 | --- | --- |
 | `sessionId`, `eventId` | Raw IDs, hashed by the helper before reaching the app |
-| `timestamp` | Event time, which must fall within the last 2 minutes |
+| `timestamp` | Original event time; fresh within 2 minutes when the extension receives it. Windows usage delivery can retry for less than 24 hours. |
 | `model` | Model identifier, such as `vendor/model-name` |
 | `inputTokens`, `outputTokens` | Token counts |
 | `cacheReadTokens`, `cacheWriteTokens` + `…Reported` booleans | Cache usage, and whether the runtime reported it at all |
@@ -191,7 +191,17 @@ The same extension also forwards **context-window** readings (`currentTokens` /
 `tokenLimit` from `session.usage_info`), **compaction** start/complete status and
 counts, and a boolean **active/idle** flag. Each of these is also a numeric- or
 boolean-only payload
-([`extension.mjs#L260-L277`](../integrations/CopilotUsage/extension.mjs#L260-L277)).
+([`extension.mjs#L288-L305`](../integrations/CopilotUsage/extension.mjs#L288-L305)).
+
+Pending events stay in extension memory until helper delivery succeeds, with
+retry backoff from 250 ms to 5 seconds. Bursts do not drop accounting events at
+the former 64-event queue limit. Only waiting activity snapshots are coalesced;
+context peaks, compaction events and model calls remain distinct. Retries keep
+their original IDs and timestamps, so receiver receipts prevent double-counting.
+Windows accepts queued CLI usage within its 24-hour receipt window; other hooks
+and macOS retain the two-minute delivery freshness limit. Expiration emits an
+explicit incomplete-telemetry warning rather than blocking newer events.
+The pending queue is not persisted across extension termination or reload.
 
 ### Token accounting
 
@@ -348,6 +358,10 @@ sequenceDiagram
   `TERM`. Ambient tokens, custom model endpoints and OTel exporters are **not**
   inherited
   ([`CopilotRuntime.swift#L66-L94`](../sources/Core/CopilotRuntime.swift#L66-L95)).
+- On Windows, the CLI is detected automatically, and when the private profile is
+  signed out the same read-only calls are tried against your normal Copilot CLI
+  profile, so an existing CLI sign-in is reused instead of a second browser login
+  ([`account.rs`](../windows/platform/src/account.rs)).
 
 Tokenotch makes two other network requests, and both are optional:
 

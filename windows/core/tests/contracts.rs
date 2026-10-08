@@ -80,6 +80,37 @@ fn oversized_and_non_object_input_is_rejected() {
 }
 
 #[test]
+fn queued_cli_usage_keeps_its_original_time_within_the_receipt_window() {
+    let now = 1_700_000_000_000.0;
+    let payload = serde_json::json!({
+        "sessionId": "queued-session", "eventId": "queued-call", "timestamp": now,
+        "usageContract": 1, "inputTokens": 100, "outputTokens": 20
+    });
+    let bytes = serde_json::to_vec(&payload).unwrap();
+    let original = normalize(&bytes, Source::Cli, "usage", now)
+        .unwrap()
+        .unwrap();
+    let mut ledger = tokenotch_core::live::TokenLedger::default();
+    for delay in [120_001.0, 180_000.0, 86_399_999.0] {
+        let retried = normalize(&bytes, Source::Cli, "usage", now + delay)
+            .unwrap()
+            .unwrap();
+        assert_eq!(retried, original);
+        retried.validate(now + delay, false).unwrap();
+        ledger.observe(&retried, now + delay, false).unwrap();
+        assert_eq!(ledger.totals(None).unwrap().calls, 1);
+        assert_eq!(ledger.totals(None).unwrap().input, 100);
+    }
+    for delay in [86_400_000.0, 86_400_001.0, -30_001.0] {
+        assert!(normalize(&bytes, Source::Cli, "usage", now + delay).is_err());
+        assert!(original.validate(now + delay, false).is_err());
+    }
+    for hook in ["sessionStart", "userPromptSubmitted"] {
+        assert!(normalize(&bytes, Source::Cli, hook, now + 120_001.0).is_err());
+    }
+}
+
+#[test]
 fn event_ids_follow_swift_character_bounds_not_utf8_byte_length() {
     let mut payload = serde_json::json!({
         "sessionId": "synthetic-session", "timestamp": 1700000000000_u64,

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-show-summary"
+description = "Enables the show_summary command without any pre-configured scope."
+commands.allow = ["show_summary"]
+
+[[permission]]
+identifier = "deny-show-summary"
+description = "Denies the show_summary command without any pre-configured scope."
+commands.deny = ["show_summary"]

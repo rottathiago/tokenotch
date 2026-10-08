@@ -16,8 +16,8 @@ def windows_configuration():
             or type(config["minimumWindowsBuild"]) is not int or config["minimumWindowsBuild"] < 22000
             or config["architectures"] != ["x64", "arm64"] or config["installer"] != "nsis"
             or config["installMode"] != "currentUser" or config["dataDirectory"] != "Tokenotch"
-            or config["channel"] != "development"):
-        raise ValueError("Invalid Windows development configuration")
+            or config["channel"] not in ("development", "release")):
+        raise ValueError("Invalid Windows release configuration")
     return config
 
 

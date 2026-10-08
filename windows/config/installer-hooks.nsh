@@ -6,7 +6,7 @@
   ReadRegStr $R0 HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion" "CurrentBuildNumber"
   IntCmp $R0 ${TOKENOTCH_MINIMUM_WINDOWS_BUILD} tokenotch_supported tokenotch_unsupported tokenotch_supported
   tokenotch_unsupported:
-    MessageBox MB_OK|MB_ICONSTOP "This Tokenotch development build requires Windows 11 24H2 or later." /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "Tokenotch requires Windows 11 24H2 or later." /SD IDOK
     Pop $R0
     Abort
   tokenotch_supported:

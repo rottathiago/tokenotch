@@ -4,5 +4,5 @@ pub const VERSION: &str = "1.0.0";
 pub const BUILD: &str = "1";
 pub const REPOSITORY: &str = "rottathiago/tokenotch";
 pub const DATA_DIRECTORY: &str = "Tokenotch";
-pub const CHANNEL: &str = "development";
+pub const CHANNEL: &str = "release";
 pub const MINIMUM_WINDOWS_BUILD: u32 = 26100;

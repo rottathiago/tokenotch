@@ -48,6 +48,34 @@ fn activity_ordering_freshness_and_work_start_match_mac_behavior() {
 }
 
 #[test]
+fn late_cli_start_preserves_fresh_work_without_refreshing_it() {
+    for (hook, fields, freshness) in [
+        ("userPromptSubmitted", json!({}), 300_000.0),
+        ("activity", json!({"active":true}), 90_000.0),
+    ] {
+        let mut state = ActivityState::default();
+        let working = event(hook, NOW, fields);
+        state.accept(&working, NOW).unwrap();
+        for delay in [73.0, freshness] {
+            let started = event("sessionStart", NOW + delay, json!({}));
+            assert!(!state.accept(&started, NOW + delay).unwrap());
+            let session = state.sessions().next().unwrap();
+            assert!(session.is_working(NOW + delay));
+            assert_eq!(session.kind, working.kind);
+            assert_eq!(session.observed_at_unix_ms, NOW);
+            assert_eq!(session.work_started_at_unix_ms, Some(NOW));
+        }
+        let resumed = event("sessionStart", NOW + freshness + 1.0, json!({}));
+        assert!(state.accept(&resumed, resumed.timestamp_unix_ms).unwrap());
+        assert!(!state
+            .sessions()
+            .next()
+            .unwrap()
+            .is_working(resumed.timestamp_unix_ms));
+    }
+}
+
+#[test]
 fn idle_does_not_erase_terminal_error_and_new_work_can_supersede_it() {
     let mut state = ActivityState::default();
     let failed = event("sessionEnd", NOW, json!({"reason":"error"}));

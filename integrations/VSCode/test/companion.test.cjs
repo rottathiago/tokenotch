@@ -633,8 +633,8 @@ for (const remote of ['ssh-remote', 'wsl', 'dev-container', 'codespaces']) {
   });
 }
 
-test('non-macOS windows reject before storage or settings access', async t => {
-  const f = await fixture(t, { platform: 'win32' });
+test('unsupported platforms reject before storage or settings access', async t => {
+  const f = await fixture(t, { platform: 'linux' });
   f.store.readRequest = () => assert.fail('must not read storage');
   assert.equal((await f.companion.run()).message, MESSAGES.remote);
   assert.equal(f.fake.updates.length, 0);

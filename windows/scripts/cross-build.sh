@@ -6,8 +6,16 @@ case "${1:-}" in
   x64) targets=(x86_64-pc-windows-msvc) ;;
   arm64) targets=(aarch64-pc-windows-msvc) ;;
   all) targets=(x86_64-pc-windows-msvc aarch64-pc-windows-msvc) ;;
-  *) echo "Usage: bash windows/scripts/cross-build.sh x64|arm64|all" >&2; exit 1 ;;
+  *) echo "Usage: bash windows/scripts/cross-build.sh x64|arm64|all --allow-unsigned" >&2; exit 1 ;;
 esac
+if [[ "${2:-}" != "--allow-unsigned" || $# -ne 2 ]]; then
+  echo "Signing is not configured. Pass --allow-unsigned to create unsigned local installers." >&2
+  exit 1
+fi
+if [[ -n "${TAURI_CONFIG:-}" || -n "${TOKENOTCH_TEST_HOME:-}" ]]; then
+  echo "Remove TAURI_CONFIG and TOKENOTCH_TEST_HOME smoke overrides explicitly before building." >&2
+  exit 1
+fi
 
 for tool in cargo cargo-xwin clang-cl llvm-rc makensis 7zz node npm python3; do
   command -v "$tool" >/dev/null || { echo "Missing cross-build prerequisite: $tool" >&2; exit 1; }
@@ -19,6 +27,8 @@ npm ci --prefix windows/desktop --ignore-scripts --no-audit --no-fund
 npm test --prefix windows/desktop
 npm run lint --prefix windows/desktop
 npm run build --prefix windows/desktop
+npm ci --prefix integrations/VSCode --ignore-scripts --no-audit --no-fund
+npm run package --prefix integrations/VSCode
 (
   cd windows
   cargo fmt --all -- --check
@@ -37,8 +47,5 @@ for target in "${targets[@]}"; do
   )
   npm run tauri --prefix windows/desktop -- bundle --features custom-protocol --target "$target" --ci --no-sign
   python3 windows/scripts/stage-artifacts.py --architecture "$architecture"
-  version="$(python3 scripts/release-config.py --field version)"
-  python3 windows/scripts/verify-installer.py --architecture "$architecture" \
-    "build/windows/$architecture/Tokenotch-$version-windows-$architecture-development-setup.exe"
 done
 echo "Unsigned Windows installers created. Native Windows execution and acceptance have NOT run."

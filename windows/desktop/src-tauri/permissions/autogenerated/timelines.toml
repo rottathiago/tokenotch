@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-timelines"
+description = "Enables the timelines command without any pre-configured scope."
+commands.allow = ["timelines"]
+
+[[permission]]
+identifier = "deny-timelines"
+description = "Denies the timelines command without any pre-configured scope."
+commands.deny = ["timelines"]

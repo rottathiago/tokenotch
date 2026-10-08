@@ -1,4 +1,4 @@
-name: Windows development checks
+name: Windows build checks
 on:
   push:
     branches: [main]
@@ -54,8 +54,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Release metadata checks failed.' }
           python windows/tests/test_packaging.py
           if ($LASTEXITCODE -ne 0) { throw 'Payload architecture checks failed.' }
-      - name: Build and package unsigned development app
-        run: ./windows/scripts/package.ps1 -Architecture ${{ matrix.architecture }} -Development
+      - name: Build and package unsigned local app
+        run: ./windows/scripts/package.ps1 -Architecture ${{ matrix.architecture }} -AllowUnsigned
       - name: Browser presentation checks
         run: |
           Push-Location windows/desktop
@@ -72,6 +72,6 @@ jobs:
           ./windows/scripts/verify-install.ps1 -Architecture ${{ matrix.architecture }} -Installer $files[0].FullName -DisposableEnvironment
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: tokenotch-windows-${{ matrix.architecture }}-development-${{ github.sha }}
+          name: tokenotch-windows-${{ matrix.architecture }}-unsigned-${{ github.sha }}
           path: build/windows/${{ matrix.architecture }}/
           if-no-files-found: error

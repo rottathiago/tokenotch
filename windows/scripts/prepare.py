@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage owned development resources without platform-specific image tools."""
+"""Stage owned resources without platform-specific image tools."""
 import argparse
 import pathlib
 import shutil

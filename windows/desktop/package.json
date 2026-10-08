@@ -13,6 +13,7 @@
     "test": "node --test ../tests/frontend/*.test.mjs",
     "lint": "cd .. && node desktop/node_modules/eslint/bin/eslint.js desktop/src desktop/test tests/frontend desktop/vite.config.js desktop/playwright.config.js eslint.config.mjs",
     "test:browser": "playwright test",
+    "test:native": "node test/native-smoke.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

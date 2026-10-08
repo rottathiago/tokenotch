@@ -194,17 +194,13 @@ impl Observation {
 
     pub fn validate(&self, now_unix_ms: f64, allowing_delayed_metrics: bool) -> Result<(), Error> {
         self.validate_payload()?;
-        let age_limit = if allowing_delayed_metrics && self.metric_source.is_some() {
-            86_400_000.0
-        } else {
-            120_000.0
-        };
+        let delayed = self.source == Source::Cli && self.kind == EventKind::Usage
+            || allowing_delayed_metrics && self.metric_source.is_some();
+        let age_limit = if delayed { 86_400_000.0 } else { 120_000.0 };
         if !now_unix_ms.is_finite()
             || self.timestamp_unix_ms > now_unix_ms + 30_000.0
             || self.timestamp_unix_ms < now_unix_ms - age_limit
-            || allowing_delayed_metrics
-                && self.metric_source.is_some()
-                && self.timestamp_unix_ms == now_unix_ms - age_limit
+            || delayed && self.timestamp_unix_ms == now_unix_ms - age_limit
         {
             return Err(Error::InvalidEvent);
         }
@@ -428,7 +424,12 @@ pub fn normalize(
             .unix_timestamp_nanos() as f64
             / 1_000_000.0
     };
-    if timestamp_unix_ms < now_unix_ms - 120_000.0 || timestamp_unix_ms > now_unix_ms + 30_000.0 {
+    let age_limit = if source == Source::Cli && hook == "usage" {
+        86_400_000.0
+    } else {
+        120_000.0
+    };
+    if timestamp_unix_ms < now_unix_ms - age_limit || timestamp_unix_ms > now_unix_ms + 30_000.0 {
         return Err(Error::InvalidEvent);
     }
     let mut event = Observation {

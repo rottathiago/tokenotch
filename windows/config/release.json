@@ -4,5 +4,5 @@
   "installer": "nsis",
   "installMode": "currentUser",
   "dataDirectory": "Tokenotch",
-  "channel": "development"
+  "channel": "release"
 }

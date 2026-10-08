@@ -11,9 +11,9 @@ const OVERRIDES = ['workspaceValue', 'workspaceFolderValue', 'defaultLanguageVal
 const CAPTURE_SUFFIXES = ['outfile', 'outFile', 'fileExporterPath', 'filePath',
   'dbSpanExporter.enabled', 'dbSpanExporterEnabled', 'captureMessages'];
 
-function hasDiscardOnlyExporter(environment) {
+function hasDiscardOnlyExporter(environment, platform = process.platform) {
   // Copilot sets this SDK opt-out marker in the shared extension host after resolving its own OTel config.
-  return environment.COPILOT_OTEL_FILE_EXPORTER_PATH === '/dev/null';
+  return environment.COPILOT_OTEL_FILE_EXPORTER_PATH === (platform === 'win32' ? '\\\\.\\nul' : '/dev/null');
 }
 
 function normalizedEndpoint(value) {
@@ -41,15 +41,15 @@ function isCopilotSettingsMirror(key, value, configuration) {
   }
 }
 
-function environmentOverrideNames(environment, configuration) {
+function environmentOverrideNames(environment, configuration, platform = process.platform) {
   return Object.keys(environment).filter(key => environment[key] !== undefined && environment[key] !== '' &&
-    !(key === 'COPILOT_OTEL_FILE_EXPORTER_PATH' && hasDiscardOnlyExporter(environment)) &&
+    !(key === 'COPILOT_OTEL_FILE_EXPORTER_PATH' && hasDiscardOnlyExporter(environment, platform)) &&
     !isCopilotSettingsMirror(key, environment[key], configuration) &&
     /^(OTEL_|COPILOT_OTEL_|GITHUB_COPILOT_OTEL_|VSCODE_OTEL_|VSCODE_AGENT_HOST_OTEL_)/i.test(key)).sort();
 }
 
-function hasEnvironmentOverrides(environment, configuration) {
-  return environmentOverrideNames(environment, configuration).length > 0;
+function hasEnvironmentOverrides(environment, configuration, platform = process.platform) {
+  return environmentOverrideNames(environment, configuration, platform).length > 0;
 }
 
 function hookMap(value) {
@@ -61,11 +61,22 @@ function hookMap(value) {
 }
 
 class Settings {
-  constructor(configuration, globalTarget, scopes = [configuration], environment = process.env) {
-    this.configuration = configuration;
+  constructor(configuration, globalTarget, scopes = [configuration], environment = process.env, platform = process.platform) {
+    this.configurationSource = configuration;
     this.globalTarget = globalTarget;
-    this.scopes = scopes;
+    this.scopeSource = scopes;
     this.environment = environment;
+    this.platform = platform;
+  }
+
+  // WorkspaceConfiguration.get() is a snapshot; inspect() alone does not refresh it.
+  get configuration() {
+    return typeof this.configurationSource === 'function' ? this.configurationSource() : this.configurationSource;
+  }
+
+  get scopes() {
+    const sources = typeof this.scopeSource === 'function' ? this.scopeSource() : this.scopeSource;
+    return sources.map(source => typeof source === 'function' ? source() : source);
   }
 
   inspect(key, scope = this.configuration) {
@@ -79,7 +90,7 @@ class Settings {
   }
 
   checkMetricsGuards(sources = Object.keys(SOURCES)) {
-    if (hasEnvironmentOverrides(this.environment, this.configuration)) throw new SafeError('environment');
+    if (hasEnvironmentOverrides(this.environment, this.configuration, this.platform)) throw new SafeError('environment');
     for (const scope of this.scopes) {
       if (scope.get('telemetry.telemetryLevel') === 'off') throw new SafeError('telemetry');
       for (const source of sources) {

@@ -89,6 +89,11 @@ impl ActivityState {
                         previous.kind,
                         EventKind::Ended | EventKind::Cancelled | EventKind::Failed
                     )
+                // CLI startup can be reported after its first prompt.
+                || event.source == Source::Cli
+                    && event.kind == EventKind::Started
+                    && previous.kind.reports_work()
+                    && previous.is_fresh(now)
             {
                 return Ok(false);
             }
@@ -139,12 +144,13 @@ impl ContextReading {
     }
 }
 
-#[derive(Debug, Clone)]
-struct Sample {
-    session: String,
-    source: UsageSource,
-    date: f64,
-    tokens: Tokens,
+#[derive(Debug, Clone, Serialize)]
+pub struct Sample {
+    pub session: String,
+    pub source: UsageSource,
+    pub date: f64,
+    pub tokens: Tokens,
+    pub linked: bool,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -217,6 +223,9 @@ pub struct TokenLedger {
 }
 
 impl TokenLedger {
+    pub fn samples(&self) -> impl Iterator<Item = &Sample> {
+        self.samples.values()
+    }
     pub fn context(&self, session: &str) -> Option<&ContextReading> {
         self.contexts.get(session)
     }
@@ -305,6 +314,7 @@ impl TokenLedger {
                 source: event.usage_source(),
                 date: event.timestamp_unix_ms,
                 tokens: tokens.clone(),
+                linked: event.metric_session_reported != Some(false),
             },
         );
         if self.samples.len() > CALL_LIMIT {

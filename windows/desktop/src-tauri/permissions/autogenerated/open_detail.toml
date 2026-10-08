@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-detail"
+description = "Enables the open_detail command without any pre-configured scope."
+commands.allow = ["open_detail"]
+
+[[permission]]
+identifier = "deny-open-detail"
+description = "Denies the open_detail command without any pre-configured scope."
+commands.deny = ["open_detail"]
