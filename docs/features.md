@@ -19,8 +19,9 @@ This reference describes the macOS implementation. The
 [Windows implementation](../windows/README.md) now covers local
 collection, usage, account quota, archives and desktop notifications, with its
 remaining parity differences and Windows-specific acceptance gates listed there.
-Windows 1.0.0 supports explicitly unsigned local production packaging; this is
-not a public release or certification of native ARM64/real-client compatibility.
+Windows 1.0.0 is available as an
+[unsigned public release](releases/1.0.0-windows.md) for x64 and ARM64.
+Publication and passing CI do not certify all real-client or desktop behavior.
 
 ## What works in this implementation
 

@@ -34,8 +34,10 @@ There is no guaranteed response time, bounty or external certification.
 
 ## Supported versions
 
-The latest published regular release is the target for security fixes, whether
-unsigned or Developer ID signed.
+The latest published regular release **for each platform** is the target for
+security fixes, whether unsigned or signed. Windows releases use separate
+`v<version>-windows` tags; GitHub's overall "latest" release remains the macOS
+release so existing macOS download and update links keep working.
 Older releases and development snapshots may require an update to receive fixes.
 This is best-effort maintenance, not a security certification or response-time
 guarantee.

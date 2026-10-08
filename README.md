@@ -22,13 +22,13 @@ VS Code, and get a nudge the moment a session needs you.
 <a href="https://github.com/rottathiago/tokenotch/releases/latest/download/Tokenotch.dmg">
   <img src="docs/design/download-macos.png" width="300" alt="Download Tokenotch for macOS">
 </a>
-<a href="windows/README.md#download-windows-preview">
-  <img src="docs/design/download-windows.png" width="300" alt="Download Tokenotch for Windows (preview)">
+<a href="https://github.com/rottathiago/tokenotch/releases/download/v1.0.0-windows/Tokenotch-1.0.0-windows-x64-setup.exe">
+  <img src="docs/design/download-windows.png" width="300" alt="Download Tokenotch for Windows (x64 installer)">
 </a>
 
-<sub>Free and open source · macOS 15+ · Windows 11 24H2+ (preview) · <a href="https://github.com/rottathiago/tokenotch/releases">All releases</a></sub>
+<sub>Free and open source · macOS 15+ · Windows 11 24H2+ · <a href="https://github.com/rottathiago/tokenotch/releases">All releases</a></sub>
 
-<p><sub>Windows downloads are unsigned preview builds for x64 and ARM64. GitHub sign-in is required.</sub></p>
+<p><sub>Windows button downloads the Intel/AMD (x64) installer · <a href="https://github.com/rottathiago/tokenotch/releases/download/v1.0.0-windows/Tokenotch-1.0.0-windows-arm64-setup.exe">ARM64 installer</a> · Unsigned; see <a href="windows/README.md#download-windows">installation notes and checksums</a></sub></p>
 
 <p>
   <a href="#why-tokenotch">Why Tokenotch</a> ·
@@ -162,8 +162,9 @@ updates and uninstalling are covered in [Getting started](docs/getting-started.m
 and [Support](docs/support.md).
 
 For Windows 11 24H2+ (x64 or ARM64), see the
-[Windows preview downloads and installation notes](windows/README.md#download-windows-preview).
-These unsigned CI builds are separate from the supported macOS release.
+[Windows downloads and installation notes](windows/README.md#download-windows).
+Windows 1.0.0 is a separate unsigned public release; downloading its installers
+does not require GitHub sign-in.
 
 ## Privacy
 
@@ -191,17 +192,16 @@ yourself? The [architecture overview](docs/architecture.md) covers:
 Tokenotch is actively developed and **will be updated as new features ship**.
 On the way:
 
-- 🪟 **Windows release readiness**: preview builds are available; full parity and release acceptance remain in progress.
+- 🪟 **Windows parity**: public installers are available; full feature parity and broader hardware/client acceptance remain in progress.
 - 🔌 **More providers**: support for more AI coding assistants and tools.
 
-The [Windows implementation and preview builds](windows/README.md) use Rust, Tauri 2 and
+The [Windows implementation and downloads](windows/README.md) use Rust, Tauri 2 and
 JavaScript, targeting native x64 and ARM64. It now includes consent-based local
 connections, usage, account quota, optional history/timelines and Windows
-notifications. Unsigned Windows 1.0.0 installers are available from
-[GitHub Actions](windows/README.md#download-windows-preview); downloads require
-GitHub sign-in and expire with the CI artifacts. Full feature parity and native
-ARM64/real-client/release acceptance remain in progress; macOS remains the
-supported release.
+notifications. Regular unsigned Windows 1.0.0 installers and checksums are
+available from [GitHub Releases](https://github.com/rottathiago/tokenotch/releases/tag/v1.0.0-windows).
+Full feature parity and broader desktop/real-client acceptance remain in
+progress; public availability does not imply Microsoft certification.
 
 ⭐ **Star** the repo and choose **Watch > Custom > Releases** to hear about each
 new version. You can also use **Check for Updates** in the app at any time.

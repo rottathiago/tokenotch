@@ -6,6 +6,10 @@ are allowed; Developer ID signing and notarization are optional. Consult the
 [official releases](https://github.com/rottathiago/tokenotch/releases) for download
 availability and artifact status. In-app installation remains a separate milestone.
 This is a readiness record, not certification of unrecorded acceptance.
+Windows 1.0.0 is available as a separate
+[unsigned public release](docs/releases/1.0.0-windows.md) for x64 and ARM64;
+its desktop, real-client and parity limits are recorded in the
+[Windows guide](windows/README.md).
 The [feature reference](docs/features.md) describes implemented behavior and the
 [compatibility matrix](docs/compatibility.md) distinguishes targets from acceptance.
 
@@ -61,6 +65,12 @@ The release workflow creates a regular draft; the owner reviews and publishes it
 with only the DMG and PKG attached. The existing manual updater can offer that
 regular release without Apple signing.
 
+Windows releases separately promote unchanged release-channel installers from
+passing native CI, with both `.exe` installers and their `.exe.sha256` files.
+Use a protected `v<version>-windows` tag at the exact build source and preserve
+the macOS release as GitHub's latest; see the
+[Windows release runbook](docs/releasing.md#public-windows-releases).
+
 Apple credentials and the acceptance record below are not requirements for this
 unsigned path. Do not imply that public availability or passing CI certifies
 untested client, hardware, accessibility or security behavior.
@@ -95,8 +105,10 @@ substitutes for the acceptance record.
 
 AI-credit billing/targets, full enterprise managed deployment, daily consumption
 warnings, cloud-generated recaps, export, watched PRs, remote clients, other IDEs/
-providers and Windows are deferred. Do not add them merely to satisfy language
-in an old plan, reuse an inherited binary, or infer unavailable billing data.
+providers are deferred. Windows is distributed separately, with its remaining
+limits recorded in the Windows guide. Do not add deferred features merely to
+satisfy language in an old plan, reuse an inherited binary, or infer unavailable
+billing data.
 
 ## Historical proposals
 
