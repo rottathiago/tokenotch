@@ -12,6 +12,33 @@ sign in, contact GitHub status or save usage automatically. The existing macOS a
 is unchanged; its shared CLI extension now selects the Windows helper filename,
 and its VS Code companion also supports a Windows private-store broker.
 
+## Download Windows preview
+
+Prebuilt Windows 1.0.0 installers are available from the
+[October 8, 2026 build](https://github.com/rottathiago/tokenotch/actions/runs/37835679786),
+where both architecture jobs passed. These are **unsigned preview builds**,
+not a certified Windows release. They target **Windows 11 24H2 (build 26100) or
+later**.
+
+| Your PC | Download |
+| --- | --- |
+| Intel or AMD (x64) | [Download Windows x64 preview](https://github.com/rottathiago/tokenotch/actions/runs/37835679786/artifacts/11575554577) |
+| Windows on ARM (ARM64) | [Download Windows ARM64 preview](https://github.com/rottathiago/tokenotch/actions/runs/37835679786/artifacts/11576581983) |
+
+Sign in to GitHub before downloading. Extract the ZIP and compare the
+`*-setup.exe` installer's SHA-256 hash (`Get-FileHash -Algorithm SHA256` in
+PowerShell) with its accompanying `.exe.sha256` file before running it.
+Close Tokenotch before reinstalling; the per-user installer retains existing
+usage history. Setup may download the WebView2 runtime. Unsigned executables
+can trigger Windows reputation warnings or organization policy; do not disable
+those protections.
+
+These CI artifacts expire on **January 6, 2027**. If a download is unavailable,
+check [Windows build checks](https://github.com/rottathiago/tokenotch/actions/workflows/windows.yml)
+for a newer successful run and its architecture-specific artifacts.
+Windows installers are not yet attached to GitHub Releases, and automatic
+updates are not implemented.
+
 ## Implemented Windows features
 
 | Area | Implementation |
