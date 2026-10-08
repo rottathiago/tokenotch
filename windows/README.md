@@ -1,43 +1,48 @@
 # Tokenotch for Windows
 
 The Windows implementation now connects the Rust/Tauri desktop to local collection,
-account quota, optional archives and Windows notifications. It remains an
-**unsigned local production build, not a publicly certified Windows release**.
+account quota, archives and Windows notifications. Windows 1.0.0 is available as
+a **regular public unsigned release**, not a Microsoft-certified application.
 The default distribution channel is `release`, with product version 1.0.0.
-Real-client delivery, native ARM64 and installer/desktop acceptance are separate
-gates; optimized compilation and production labels do not establish them.
+Real-client delivery and broader hardware/desktop acceptance remain separate
+gates; public availability and production labels do not establish them.
 
 All collection starts off. The app does not install hooks, enable editor telemetry,
 sign in, contact GitHub status or save usage automatically. The existing macOS app
 is unchanged; its shared CLI extension now selects the Windows helper filename,
 and its VS Code companion also supports a Windows private-store broker.
 
-## Download Windows preview
+<a id="download-windows-preview"></a>
 
-Prebuilt Windows 1.0.0 installers are available from the
-[October 8, 2026 build](https://github.com/rottathiago/tokenotch/actions/runs/37835679786),
-where both architecture jobs passed. These are **unsigned preview builds**,
-not a certified Windows release. They target **Windows 11 24H2 (build 26100) or
-later**.
+## Download Windows
+
+Windows 1.0.0 installers are available from
+[GitHub Releases](https://github.com/rottathiago/tokenotch/releases/tag/v1.0.0-windows).
+These are **unsigned release-channel installers** targeting
+**Windows 11 24H2 (build 26100) or later**. They do not require GitHub sign-in
+and do not expire with GitHub Actions artifact retention.
 
 | Your PC | Download |
 | --- | --- |
-| Intel or AMD (x64) | [Download Windows x64 preview](https://github.com/rottathiago/tokenotch/actions/runs/37835679786/artifacts/11575554577) |
-| Windows on ARM (ARM64) | [Download Windows ARM64 preview](https://github.com/rottathiago/tokenotch/actions/runs/37835679786/artifacts/11576581983) |
+| Intel or AMD (x64) | [Download Windows x64 installer](https://github.com/rottathiago/tokenotch/releases/download/v1.0.0-windows/Tokenotch-1.0.0-windows-x64-setup.exe) |
+| Windows on ARM (ARM64) | [Download Windows ARM64 installer](https://github.com/rottathiago/tokenotch/releases/download/v1.0.0-windows/Tokenotch-1.0.0-windows-arm64-setup.exe) |
 
-Sign in to GitHub before downloading. Extract the ZIP and compare the
-`*-setup.exe` installer's SHA-256 hash (`Get-FileHash -Algorithm SHA256` in
-PowerShell) with its accompanying `.exe.sha256` file before running it.
+The homepage button downloads x64 directly; choose ARM64 for Windows on ARM.
+Compare the `*-setup.exe` installer's SHA-256 hash (`Get-FileHash -Algorithm SHA256`
+in PowerShell) with its matching `.exe.sha256` release asset before running it.
+The [release notes and checksums](../docs/releases/1.0.0-windows.md)
+also record the exact build source and validation limits.
 Close Tokenotch before reinstalling; the per-user installer retains existing
 usage history. Setup may download the WebView2 runtime. Unsigned executables
 can trigger Windows reputation warnings or organization policy; do not disable
 those protections.
 
-These CI artifacts expire on **January 6, 2027**. If a download is unavailable,
-check [Windows build checks](https://github.com/rottathiago/tokenotch/actions/workflows/windows.yml)
-for a newer successful run and its architecture-specific artifacts.
-Windows installers are not yet attached to GitHub Releases, and automatic
-updates are not implemented.
+The public installers are unchanged outputs of
+[Windows build checks run 37853848609](https://github.com/rottathiago/tokenotch/actions/runs/37853848609),
+where both native architecture jobs passed packaging, browser and disposable
+installation checks. This does not certify all Windows 11 desktop or real-client
+behavior. Automatic updates are not implemented; **Check for updates** opens
+official releases.
 
 ## Implemented Windows features
 
@@ -561,8 +566,10 @@ The release filenames are `Tokenotch-1.0.0-windows-x64-setup.exe` and
 `Tokenotch-1.0.0-windows-arm64-setup.exe`, each with an `.exe.sha256` file.
 An explicitly selected development channel retains `-development` in its
 artifact names. Packaging requires `-AllowUnsigned`; omission fails before
-building. Signing, public release publishing and automatic updates are not
-implemented. **Check for updates** opens official releases.
+building. These scripts do not sign or publish installers, and automatic updates
+are not implemented. Public releases promote verified CI installers manually;
+see the [Windows release runbook](../docs/releasing.md#public-windows-releases).
+**Check for updates** opens official releases.
 
 The staging step inspects the exact installer before copying it and calculating
 its checksum: app/helper architecture, runtime imports and exact release binary contents, release metadata,

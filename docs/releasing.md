@@ -108,6 +108,52 @@ eligible for the manual updater. Unsigned downloads may need the normal per-app
 [support](support.md#unsigned-downloads). Do not disable Gatekeeper, strip
 quarantine, bypass managed-device policy or claim unperformed acceptance.
 
+## Public Windows releases
+
+Windows has a separate regular unsigned release, currently
+[`v1.0.0-windows`](releases/1.0.0-windows.md), with native x64 and ARM64 NSIS
+installers. Authenticode signing and automatic update installation are not
+implemented. Public availability is not Microsoft certification or proof of
+full desktop, real-client, accessibility or macOS feature-parity acceptance.
+
+The Windows workflow builds and verifies installers; it does not publish them.
+After owner authorization, promote its unchanged artifacts rather than
+rebuilding from an unrelated or dirty local checkout:
+
+1. Select a successful **Windows build checks** run on `main`. Require both
+   architecture jobs, including packaging, browser and disposable installation
+   checks, plus the required native/documentation CI for the exact source SHA.
+   Verify product version/build metadata and the Windows `release` channel.
+2. Download both architecture artifacts. Check each installer against its
+   `.exe.sha256` file and review its embedded app/helper architecture, companion,
+   release metadata and MIT notices. Keep the CI run and source revision in
+   release notes; do not claim that hosted installation checks establish
+   real-client or physical desktop acceptance.
+3. Create and push only the protected `v<version>-windows` tag at the **exact
+   build SHA**. Never attach binaries built from another revision, rename a
+   development build as production, or move an existing immutable version tag.
+   Record Windows notes separately in `docs/releases/<version>-windows.md`;
+   do not rewrite the earlier macOS release notes.
+4. Create a regular **draft** with `gh release create --verify-tag --draft
+   --prerelease=false --latest=false`. Attach
+   `Tokenotch-<version>-windows-x64-setup.exe` and
+   `Tokenotch-<version>-windows-arm64-setup.exe`, plus each `.exe.sha256` file.
+   Include source SHA, CI run, checksum values, requirements, known limits and
+   explicit unsigned disclosure. Verify all uploaded asset digests before
+   owner-authorized publication.
+5. Publish with `gh release edit <tag> --draft=false --prerelease=false
+   --latest=false`. Preserve the macOS release as GitHub's latest:
+   `/releases/latest/download/Tokenotch.dmg` and the macOS update lookup depend
+   on it. Do not replace or overwrite macOS assets.
+6. Verify anonymous downloads against the original checksums. Point the README's
+   Windows button directly at the tagged **x64** `.exe` URL and place a separate
+   **ARM64** installer link beside it. Update the Windows guide through a PR and
+   confirm the published README links after merging.
+
+Release assets do not require GitHub sign-in or expire with CI retention.
+Windows reputation warnings and managed-device policies may still block
+unsigned installers; never recommend disabling those protections.
+
 ## Optional signed-release acceptance
 
 `config/ReleaseAcceptance.json` intentionally contains false/unrecorded gates.
