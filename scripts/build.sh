@@ -1,8 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-python3 scripts/release-config.py
-python3 scripts/make-brand-assets.py --check
 if [[ "${1:-}" == "--universal" && $# -eq 1 ]]; then
   ARCHITECTURES=(arm64 x86_64)
 elif [[ $# -eq 0 ]]; then
@@ -11,6 +9,10 @@ else
   echo "Usage: bash scripts/build.sh [--universal]" >&2
   exit 1
 fi
+command -v python3 >/dev/null 2>&1 || { echo "Python 3.9+ is required; install Python 3 and see docs/getting-started.md#build-from-source." >&2; exit 1; }
+python3 scripts/preflight.py
+python3 scripts/release-config.py
+python3 scripts/make-brand-assets.py --check
 make vscode-companion
 MIN_OS="$(python3 scripts/release-config.py --field minimumOS)"
 for ARCH in "${ARCHITECTURES[@]}"; do
@@ -39,8 +41,8 @@ for ARCH in "${ARCHITECTURES[@]}"; do
   APP_INPUTS+=("build/native-$ARCH/Tokenotch")
   HOOK_INPUTS+=("build/native-$ARCH/TokenotchHook")
 done
-lipo -create "${APP_INPUTS[@]}" -output "$APP/Contents/MacOS/Tokenotch"
-lipo -create "${HOOK_INPUTS[@]}" -output "$APP/Contents/Helpers/TokenotchHook"
+xcrun lipo -create "${APP_INPUTS[@]}" -output "$APP/Contents/MacOS/Tokenotch"
+xcrun lipo -create "${HOOK_INPUTS[@]}" -output "$APP/Contents/Helpers/TokenotchHook"
 cp integrations/CopilotUsage/extension.mjs "$APP/Contents/Resources/CopilotUsage/"
 cp integrations/VSCode/TokenotchVSCode.vsix LICENSE "$APP/Contents/Resources/"
 cp sources/Resources/Brand/*.png sources/Resources/Brand/Tokenotch.icns "$APP/Contents/Resources/"

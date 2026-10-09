@@ -98,9 +98,49 @@ jobs:
           python3 scripts/verify-bundle.py build/Tokenotch.app --universal
       - name: Build and verify development installers
         run: python3 scripts/package.py --skip-build
+      - name: Install and launch on the fresh Apple Silicon runner
+        timeout-minutes: 5
+        run: |
+          (cd build/packages && shasum -a 256 -c Tokenotch.dmg.sha256 Tokenotch.pkg.sha256)
+          xcrun swiftc -swift-version 5 -parse-as-library scripts/install-smoke.swift -o build/tokenotch-install-smoke
+          build/tokenotch-install-smoke
       - name: Ensure optional signed releases still require approval
         run: |
           if python3 scripts/release.py --signed --check; then
             echo "Signed release accepted without approval/signing configuration"
             exit 1
           fi
+      - name: Keep verified installers for native Intel acceptance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos-development-installers
+          path: |
+            build/packages/Tokenotch.dmg
+            build/packages/Tokenotch.dmg.sha256
+            build/packages/Tokenotch.pkg
+            build/packages/Tokenotch.pkg.sha256
+          if-no-files-found: error
+          retention-days: 3
+  install-intel:
+    needs: test
+    if: ${{ needs.test.result == 'success' }}
+    runs-on: macos-15-intel
+    timeout-minutes: 10
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: macos-development-installers
+          path: build/packages
+      - name: Install and launch the exact verified installers on Intel
+        timeout-minutes: 5
+        run: |
+          uname -m
+          xcodebuild -version
+          (cd build/packages && shasum -a 256 -c Tokenotch.dmg.sha256 Tokenotch.pkg.sha256)
+          xcrun swiftc -swift-version 5 -parse-as-library scripts/install-smoke.swift -o build/tokenotch-install-smoke
+          build/tokenotch-install-smoke

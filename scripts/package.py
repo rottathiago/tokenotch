@@ -244,6 +244,10 @@ def main():
     parser.add_argument("--output", type=pathlib.Path, default=ROOT / "build/packages")
     parser.add_argument("--format", choices=["all", "dmg", "pkg"], default="all")
     args = parser.parse_args()
+    preflight = ["python3", "scripts/preflight.py", "--package", "--format", args.format]
+    if args.skip_build:
+        preflight.append("--skip-build")
+    run(*preflight)
     config = configuration()
     if not args.skip_build:
         run("make", "universal")

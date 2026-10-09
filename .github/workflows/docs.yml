@@ -24,9 +24,11 @@ jobs:
           persist-credentials: false
       - name: Verify release metadata, notes and publication tree
         run: make metadata
-      - name: Test release and publication checks
+      - name: Test release, packaging, prerequisite and publication checks
         run: |
           python3 scripts/test-release.py
+          python3 scripts/test-package.py
+          python3 scripts/test-preflight.py
           python3 scripts/test-project.py
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:

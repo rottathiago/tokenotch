@@ -23,10 +23,15 @@ generated build output, credentials, machine-local files or personal diagnostics
 
 ## Prerequisites
 
+For a first build and installation, follow the complete
+[macOS source-build walkthrough](docs/getting-started.md#build-from-source).
+`make preflight` checks native build and installer prerequisites without
+installing tools or changing the selected toolchain.
+
 | Work | Requirements |
 | --- | --- |
 | Markdown and local links | Node 22.12+ and npm; [lychee 0.24.2](https://github.com/lycheeverse/lychee/releases/tag/lychee-v0.24.2). No Xcode needed. |
-| Native builds and executable smoke checks | macOS 15+, a coherent Swift 6+ toolchain from Xcode or matching Command Line Tools, Node 22.12+/npm and Python 3. |
+| Native builds and executable smoke checks | macOS 15+, a coherent Swift 6+ toolchain from Xcode or matching Command Line Tools, Node 22.12+/working npm and Python 3.9+. |
 | XCTest | Full Xcode, not Command Line Tools alone. CI selects Xcode 16.4; select it with `DEVELOPER_DIR` when multiple toolchains are installed. |
 | VS Code companion | Node 22.12+ and npm; dependencies are pinned in its lockfile. Real-client checks require a supported local VS Code installation/profile. |
 | Optional Xcode project | XcodeGen, in addition to native prerequisites. |
@@ -88,7 +93,7 @@ as described in the prerequisites rather than relying on copies under `build/`.
 | VS Code companion or telemetry | `make vscode-companion`, `make smoke-telemetry` |
 | History or timelines | `make smoke-history` or `make smoke-timeline` |
 | Native UI or onboarding | `make smoke-notch`; use `NOTCH_SMOKE_ARGS=--onboarding` for focused setup checks |
-| Release metadata or packaging | `make metadata`, `make universal`, `make package`; inspect the resulting development bundle |
+| Release metadata or packaging | `make preflight`, `python3 scripts/test-package.py`, `python3 scripts/test-preflight.py`, `make metadata`, `make package`; inspect the resulting universal bundle and installers |
 
 `make test` and `make test-ci` run the same XCTest and release-gate suite.
 `make build` produces a host-architecture development app; `make universal`
@@ -99,13 +104,20 @@ produces both architectures. Both use ad-hoc signing without notarization.
 `make test-xcode` runs its scheme. Native UI smoke checks require a GUI session.
 
 The required `Documentation checks / docs` job always runs `make metadata` and
-the Python release/publication regression tests, including on documentation-only
+the Python release/packaging/prerequisite/publication regression tests, including on documentation-only
 changes. It then runs offline Markdown/local-link checks after installing tools.
 Maintainers can run `make docs-links-external`
 on reviewed content for advisory HTTPS checks; do not run network checks on
 untrusted contributions. A skipped or unreachable external URL is not verified.
 Native CI runs its complete checks for changes outside documentation-only paths;
 a documentation-only contributor need not claim to have run those locally.
+
+Native CI also installs the PKG and copies the DMG app on fresh GitHub-hosted
+Apple Silicon and Intel runners, verifies each installed bundle, opens first-run
+Settings, and quits the owned test process. `scripts/install-smoke.swift` refuses
+local/self-hosted execution or an existing Tokenotch installation/profile.
+It records Gatekeeper's CLI assessment without changing policy; this is not
+browser-download, GUI installer-wizard, or real-client acceptance.
 
 For native UI timing regressions, run
 `xcrun swift test --filter 'NotchWaitTests|HistoryPresentationTests|testIdleAutoHideAndHoverExpansion'`.
