@@ -22,6 +22,18 @@ maintainer must restore private reporting or establish a verified interim
 private security route before further release announcements.
 Conduct reporting is not handled through security advisories.
 
+## Automated monitoring
+
+Dependabot alerts and security updates monitor the repository's dependency graph.
+Secret scanning and push protection help detect supported credential patterns.
+CodeQL default setup uses the extended query suite for GitHub Actions,
+JavaScript/TypeScript, Python, Rust and Swift. The Dependency review workflow
+checks pull requests for dependencies with known vulnerabilities.
+
+Review findings privately where appropriate; do not copy secrets into logs,
+issues or pull requests. These checks do not cover every vulnerability, replace
+manual review or certify a release as secure.
+
 ## What to include privately
 
 Describe the affected Tokenotch/client/OS versions, impact and a minimal synthetic

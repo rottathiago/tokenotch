@@ -34,7 +34,9 @@ try {
         Invoke-Checked { cargo build -p tokenotch-hook --release --target $target --locked }
         Invoke-Checked { python scripts/prepare.py --target $target --helper "target/$target/release/TokenotchHook.exe" }
         Invoke-Checked { cargo clippy --workspace --all-targets --features tokenotch-desktop/custom-protocol --target $target --locked -- -D warnings }
-        Invoke-Checked { cargo test --workspace --features tokenotch-desktop/custom-protocol --target $target --locked }
+        Invoke-Checked { cargo test --workspace --features tokenotch-desktop/custom-protocol --target $target --locked -- --skip imports_release_runtime_for_live_delivery_within_hook_deadline }
+        # Exercise concurrent import/live delivery without unrelated filesystem-heavy tests.
+        Invoke-Checked { cargo test -p tokenotch-platform --test runtime --target $target --locked imports_release_runtime_for_live_delivery_within_hook_deadline -- --exact --nocapture }
         Invoke-Checked { npm run tauri --prefix desktop -- build --no-bundle --features custom-protocol --target $target --ci -- --locked }
         Invoke-Checked { python scripts/verify-pe.py --architecture $Architecture --static-runtime "target/$target/release/Tokenotch.exe" "target/$target/release/TokenotchHook.exe" }
         $diagnostic = & "target/$target/release/TokenotchHook.exe" --self-test
