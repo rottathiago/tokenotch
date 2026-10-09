@@ -64,6 +64,8 @@ for path, digest in manifest["assets"].items():
             raise SystemExit(f"Bundled logo asset is stale: {bundled.name}")
 if "--universal" in sys.argv:
     for binary in ["MacOS/Tokenotch", "Helpers/TokenotchHook"]:
-        subprocess.run(["lipo", str(app / "Contents" / binary),
-                        "-verify_arch", "arm64", "x86_64"], check=True)
+        for architecture in ["arm64", "x86_64"]:
+            # LLVM lipo treats everything after -verify_arch as architecture names.
+            subprocess.run(["xcrun", "lipo", str(app / "Contents" / binary),
+                            "-verify_arch", architecture], check=True)
 print("Bundle identity, resources, and companion verified.")

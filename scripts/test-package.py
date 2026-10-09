@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import io
 import json
 import pathlib
 import plistlib
@@ -9,10 +10,51 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ElementTree
 import zipfile
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 package = runpy.run_path(str(ROOT / "scripts/package.py"))
+
+
+class PackagingPreflight(unittest.TestCase):
+    def test_prerequisite_failure_stops_before_build_or_output_changes(self):
+        for skip_build in [False, True]:
+            with self.subTest(skip_build=skip_build), tempfile.TemporaryDirectory(prefix="tokenotch-preflight-package-") as temporary:
+                output = pathlib.Path(temporary) / "packages"
+                args = ["package.py", "--format", "pkg", "--output", str(output)]
+                if skip_build:
+                    args.append("--skip-build")
+
+                def fail(*command):
+                    raise subprocess.CalledProcessError(1, command)
+
+                with patch("sys.argv", args), \
+                     patch.dict(package["main"].__globals__, run=fail):
+                    with self.assertRaises(subprocess.CalledProcessError) as error:
+                        package["main"]()
+                expected = ("python3", "scripts/preflight.py", "--package", "--format", "pkg")
+                if skip_build:
+                    expected += ("--skip-build",)
+                self.assertEqual(error.exception.cmd, expected)
+                self.assertFalse(output.exists())
+
+    def test_preflight_runs_before_universal_build_and_bundle_checks(self):
+        commands = []
+        with tempfile.TemporaryDirectory(prefix="tokenotch-preflight-order-") as temporary:
+            with patch("sys.argv", ["package.py", "--format", "dmg", "--output", temporary]), \
+                 patch.dict(package["main"].__globals__,
+                            run=lambda *command: commands.append(command),
+                            verify_bundle_identity=lambda *args: None,
+                            build_dmg=lambda *args: None,
+                            verify_dmg=lambda *args: None,
+                            write_checksum=lambda *args: "synthetic"), redirect_stdout(io.StringIO()):
+                package["main"]()
+        self.assertEqual(commands[:2], [
+            ("python3", "scripts/preflight.py", "--package", "--format", "dmg"),
+            ("make", "universal"),
+        ])
+        self.assertEqual(commands[2][:2], ("python3", "scripts/verify-bundle.py"))
 
 
 class InstallerMetadata(unittest.TestCase):
@@ -135,6 +177,52 @@ class BundleContract(unittest.TestCase):
     def test_complete_bundle_contract(self):
         result = self.verify()
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def universal_commands(self):
+        return [
+            ["xcrun", "lipo", str(self.contents / binary), "-verify_arch", architecture]
+            for binary in ["MacOS/Tokenotch", "Helpers/TokenotchHook"]
+            for architecture in ["arm64", "x86_64"]
+        ]
+
+    def test_universal_checks_each_architecture_of_both_binaries_with_selected_toolchain(self):
+        output = io.StringIO()
+        with patch("sys.argv", ["verify-bundle.py", str(self.app), "--universal"]), \
+             patch("subprocess.run") as run, redirect_stdout(output):
+            runpy.run_path(str(ROOT / "scripts/verify-bundle.py"))
+        self.assertEqual([call.args[0] for call in run.call_args_list], self.universal_commands())
+        self.assertTrue(all(call.kwargs["check"] for call in run.call_args_list))
+        self.assertIn("verified", output.getvalue())
+
+    def test_missing_slice_in_either_binary_stops_universal_verification(self):
+        for rejected in self.universal_commands():
+            with self.subTest(command=rejected):
+                output = io.StringIO()
+
+                def run(command, **kwargs):
+                    if command == rejected:
+                        raise subprocess.CalledProcessError(1, command)
+
+                with patch("sys.argv", ["verify-bundle.py", str(self.app), "--universal"]), \
+                     patch("subprocess.run", side_effect=run) as runner, redirect_stdout(output):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        runpy.run_path(str(ROOT / "scripts/verify-bundle.py"))
+                self.assertEqual(runner.call_args.args[0], rejected)
+                self.assertNotIn("verified", output.getvalue())
+
+    def test_unavailable_selected_toolchain_does_not_report_success(self):
+        output = io.StringIO()
+        with patch("sys.argv", ["verify-bundle.py", str(self.app), "--universal"]), \
+             patch("subprocess.run", side_effect=FileNotFoundError("xcrun")), redirect_stdout(output):
+            with self.assertRaises(FileNotFoundError):
+                runpy.run_path(str(ROOT / "scripts/verify-bundle.py"))
+        self.assertNotIn("verified", output.getvalue())
+
+    def test_non_universal_verification_does_not_require_lipo(self):
+        with patch("sys.argv", ["verify-bundle.py", str(self.app)]), \
+             patch("subprocess.run") as run, redirect_stdout(io.StringIO()):
+            runpy.run_path(str(ROOT / "scripts/verify-bundle.py"))
+        run.assert_not_called()
 
     def test_missing_executable_is_rejected(self):
         (self.contents / "MacOS/Tokenotch").unlink()

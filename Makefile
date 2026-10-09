@@ -1,4 +1,4 @@
-.PHONY: build universal metadata test test-ci smoke smoke-contracts smoke-telemetry vscode-companion smoke-history smoke-timeline smoke-notch gen test-xcode run clean package release docs-check docs-links-external
+.PHONY: build universal preflight metadata test test-ci smoke smoke-contracts smoke-telemetry vscode-companion smoke-history smoke-timeline smoke-notch gen test-xcode run clean package release docs-check docs-links-external
 
 docs-check:
 	node scripts/docs/check.mjs
@@ -13,6 +13,10 @@ build:
 universal:
 	bash scripts/build.sh --universal
 
+preflight:
+	@command -v python3 >/dev/null 2>&1 || { echo "Python 3.9+ is required; install Python 3 and see docs/getting-started.md#build-from-source." >&2; exit 1; }
+	python3 scripts/preflight.py --package
+
 metadata:
 	python3 scripts/release-config.py
 	python3 scripts/release.py --check-notes
@@ -24,6 +28,7 @@ test test-ci:
 	xcrun swift test
 	python3 scripts/test-release.py
 	python3 scripts/test-package.py
+	python3 scripts/test-preflight.py
 	python3 scripts/test-project.py
 
 smoke:
@@ -94,6 +99,7 @@ clean:
 	swift package clean
 
 package:
+	@command -v python3 >/dev/null 2>&1 || { echo "Python 3.9+ is required; install Python 3 and see docs/getting-started.md#build-from-source." >&2; exit 1; }
 	python3 scripts/package.py $(PACKAGE_ARGS)
 
 release:

@@ -52,14 +52,24 @@ development/test project, not a different release product.
 
 ## Development installers
 
+For required tools, a clean clone, checksum verification and installation, follow
+the [macOS source-build walkthrough](getting-started.md#build-from-source).
+`make preflight` checks the build and installer tools without changing settings;
+the native build and packager also check their prerequisites before doing work.
+
 `make package` (`python3 scripts/package.py`) builds the universal bundle and
 writes `build/packages/Tokenotch.dmg` and `build/packages/Tokenotch.pkg` with SHA-256
 files, replacing the previous development installers. Pass
-`PACKAGE_ARGS="--skip-build"` to reuse `build/Tokenotch.app` or `--format dmg|pkg`
+`PACKAGE_ARGS="--skip-build"` to reuse a **universal** `build/Tokenotch.app` or `--format dmg|pkg`
 for one installer. The DMG is a drag-to-Applications image; the PKG is a
 non-relocatable, version-checked product archive that installs only to
 `/Applications` on the local system, checks the minimum macOS version and
 architecture, shows the MIT license, and runs no install scripts.
+The skip-build route requires only packaging tools, not Node/npm or a Swift
+compiler. Both architectures are verified separately in the app and helper
+using `xcrun lipo`, with the binary before `-verify_arch` for compatibility with
+both LLVM/Xcode and newer Command Line Tools parsers. Ambient `PATH` tools cannot
+mask an invalid bundle.
 
 Development installers stay on the `development` channel, ad-hoc signed and not
 notarized. Sharing unsigned installers is allowed. For a regular public release,
