@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Darwin
 import Foundation
 
 @main
@@ -44,6 +45,14 @@ enum InstallerSmoke {
         }
     }
 
+    static func processExists(_ pid: pid_t) throws -> Bool {
+        try require(pid > 0, "Invalid test process identifier")
+        if kill(pid, 0) == 0 { return true }
+        let code = errno
+        if code == ESRCH { return false }
+        throw Failure.check("Could not observe test process \(pid): errno \(code)")
+    }
+
     static func launchAndQuit(_ app: URL) throws {
         var application: NSRunningApplication?
         do {
@@ -60,10 +69,11 @@ enum InstallerSmoke {
             try require(hasSettingsWindow(application.processIdentifier), "First-run Settings window was not visible")
             try require(application.terminate(), "Could not quit the test app")
             let quitDeadline = ProcessInfo.processInfo.systemUptime + 10
-            while !application.isTerminated && ProcessInfo.processInfo.systemUptime < quitDeadline {
+            while try processExists(application.processIdentifier) && ProcessInfo.processInfo.systemUptime < quitDeadline {
                 RunLoop.current.run(until: Date().addingTimeInterval(0.1))
             }
-            try require(application.isTerminated, "Test app did not terminate")
+            let exited = try !processExists(application.processIdentifier)
+            try require(exited, "Test app did not terminate (pid \(application.processIdentifier), cached state \(application.isTerminated))")
             print("Installed app launched, showed first-run Settings, and quit: \(app.lastPathComponent)")
         } catch {
             if let application, !application.isTerminated, !application.forceTerminate() {
