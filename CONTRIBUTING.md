@@ -114,10 +114,10 @@ a documentation-only contributor need not claim to have run those locally.
 
 Native CI also installs the PKG and copies the DMG app on fresh GitHub-hosted
 Apple Silicon and Intel runners, verifies each installed bundle, opens first-run
-Settings, and quits the owned test process. `scripts/install-smoke.swift` refuses
+Settings, and stops the owned test process for cleanup. `scripts/install-smoke.swift` refuses
 local/self-hosted execution or an existing Tokenotch installation/profile.
 It records Gatekeeper's CLI assessment without changing policy; this is not
-browser-download, GUI installer-wizard, or real-client acceptance.
+browser-download, GUI installer-wizard, graceful/interactive quit, or real-client acceptance.
 
 For native UI timing regressions, run
 `xcrun swift test --filter 'NotchWaitTests|HistoryPresentationTests|testIdleAutoHideAndHoverExpansion'`.

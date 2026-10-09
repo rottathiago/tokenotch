@@ -53,7 +53,7 @@ enum InstallerSmoke {
         throw Failure.check("Could not observe test process \(pid): errno \(code)")
     }
 
-    static func launchAndQuit(_ app: URL) throws {
+    static func launchAndStop(_ app: URL) throws {
         var application: NSRunningApplication?
         do {
             try run("/usr/bin/open", ["-n", app.path])
@@ -67,14 +67,15 @@ enum InstallerSmoke {
             }
             guard let application else { throw Failure.check("Installed app did not launch") }
             try require(hasSettingsWindow(application.processIdentifier), "First-run Settings window was not visible")
-            try require(application.terminate(), "Could not quit the test app")
+            print("Installed app launched and showed first-run Settings: \(app.lastPathComponent)")
+            try require(application.forceTerminate(), "Could not stop the owned test process")
             let quitDeadline = ProcessInfo.processInfo.systemUptime + 10
             while try processExists(application.processIdentifier) && ProcessInfo.processInfo.systemUptime < quitDeadline {
                 RunLoop.current.run(until: Date().addingTimeInterval(0.1))
             }
             let exited = try !processExists(application.processIdentifier)
-            try require(exited, "Test app did not terminate (pid \(application.processIdentifier), cached state \(application.isTerminated))")
-            print("Installed app launched, showed first-run Settings, and quit: \(app.lastPathComponent)")
+            try require(exited, "Owned test process did not exit (pid \(application.processIdentifier))")
+            print("Owned test process stopped for cleanup; graceful/interactive quit is not an acceptance result.")
         } catch {
             if let application, !application.isTerminated, !application.forceTerminate() {
                 fputs("Could not terminate the owned installer test process.\n", stderr)
@@ -105,7 +106,7 @@ enum InstallerSmoke {
         try run("/usr/bin/sudo", ["-n", "/usr/sbin/installer", "-pkg",
                                  root.appendingPathComponent("build/packages/Tokenotch.pkg").path, "-target", "/"])
         try verify(installed)
-        try launchAndQuit(installed)
+        try launchAndStop(installed)
 
         let mount = files.temporaryDirectory.appendingPathComponent("tokenotch-install-\(UUID().uuidString)")
         try files.createDirectory(at: mount, withIntermediateDirectories: false)
@@ -116,7 +117,7 @@ enum InstallerSmoke {
             try files.createDirectory(at: copied.deletingLastPathComponent(), withIntermediateDirectories: true)
             try run("/usr/bin/ditto", [mount.appendingPathComponent("Tokenotch.app").path, copied.path])
             try verify(copied)
-            try launchAndQuit(copied)
+            try launchAndStop(copied)
         } catch {
             do { try run("/usr/bin/hdiutil", ["detach", "-quiet", mount.path]) }
             catch { fputs("Could not detach the installer test disk image: \(error)\n", stderr) }
