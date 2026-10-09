@@ -561,6 +561,14 @@ It restores locked frontend dependencies when missing or invalid, runs checks,
 builds the release helper, stages architecture-specific resources and builds the
 desktop with embedded frontend assets and a static Visual C++ runtime.
 
+Coverage fixtures deliberately cross reporting midnight and check both dates;
+saved-total checks query the events' reporting date rather than the current day.
+The build runs the concurrent import/live-delivery regression separately from
+the filesystem-heavy test suite. Its 900 ms acknowledgement deadline is unchanged,
+and delivery must still occur before the import finishes. To run it alone from
+`windows`, use
+`cargo test -p tokenotch-platform --test runtime --locked imports_release_runtime_for_live_delivery_within_hook_deadline -- --exact --nocapture`.
+
 Unsigned installers and checksums go to `build/windows/<architecture>/`.
 The release filenames are `Tokenotch-1.0.0-windows-x64-setup.exe` and
 `Tokenotch-1.0.0-windows-arm64-setup.exe`, each with an `.exe.sha256` file.

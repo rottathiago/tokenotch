@@ -142,8 +142,8 @@ async fn import_with_live_delivery(count: usize) {
     let mut interleaved = false;
     let mut longest = Duration::ZERO;
     while !importing.is_finished() {
-        let began = Instant::now();
         tokio::time::sleep(Duration::from_millis(5)).await;
+        let began = Instant::now();
         let state = shared.clone();
         let progress = tokio::task::spawn_blocking(move || {
             let mut state = state.lock().unwrap();

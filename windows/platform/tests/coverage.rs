@@ -287,7 +287,7 @@ fn runtime_opportunity_requires_a_ready_consented_receiver_not_observed_calls() 
     let f = Fixture::new("UTC");
     let mut runtime = Runtime::open(f.store.clone()).unwrap();
     runtime.preferences(prefs()).unwrap();
-    let start = now_ms();
+    let start = at("2026-09-30T23:59:15Z");
     runtime.checkpoint(start, false).unwrap();
     runtime.checkpoint(start + 30_000.0, false).unwrap();
     let day = runtime.archive.as_ref().unwrap().today(start).unwrap();
@@ -307,14 +307,19 @@ fn runtime_opportunity_requires_a_ready_consented_receiver_not_observed_calls() 
     runtime.pipe_running = true;
     runtime.checkpoint(start + 30_000.0, false).unwrap();
     runtime.checkpoint(start + 60_000.0, false).unwrap();
-    let day = runtime.archive.as_ref().unwrap().today(start).unwrap();
-    let history = runtime
-        .archive
-        .as_ref()
-        .unwrap()
-        .history(&day, &day)
-        .unwrap();
+    let archive = runtime.archive.as_ref().unwrap();
+    let first = archive.today(start).unwrap();
+    let last = archive.today(start + 60_000.0).unwrap();
+    let history = archive.history(&first, &last).unwrap();
     assert_eq!(seconds(&history, "cli"), 30.0);
+    assert_eq!(
+        seconds(&archive.history(&first, &first).unwrap(), "cli"),
+        15.0
+    );
+    assert_eq!(
+        seconds(&archive.history(&last, &last).unwrap(), "cli"),
+        15.0
+    );
     assert!(runtime.tokens.samples().next().is_none());
 }
 
@@ -332,23 +337,67 @@ fn saved_totals_survive_live_capacity_and_model_overflow() {
     let snapshot = runtime.snapshot().unwrap();
     assert_eq!(snapshot["samples"].as_array().unwrap().len(), 4096);
     assert_eq!(snapshot["partial"], true);
-    let rows = snapshot["today"]["days"].as_array().unwrap();
+    let archive = runtime.archive.as_ref().unwrap();
+    let day = archive.today(start).unwrap();
+    let saved = archive.history(&day, &day).unwrap();
     assert_eq!(
-        rows.iter()
-            .map(|r| r["usage"]["calls"].as_u64().unwrap())
-            .sum::<u64>(),
+        saved.days.iter().map(|row| row.usage.calls).sum::<u64>(),
         4097
     );
     assert_eq!(
-        rows.iter()
-            .map(|r| r["usage"]["input"].as_u64().unwrap())
-            .sum::<u64>(),
+        saved.days.iter().map(|row| row.usage.input).sum::<u64>(),
         4097 * 60
     );
-    assert!(rows
+    assert!(saved
+        .days
         .iter()
-        .any(|r| r["model"] == "Other models (capacity limit)"));
-    assert_eq!(snapshot["today"]["hours"][0]["usage"]["calls"], 4097);
+        .any(|row| row.model.as_deref() == Some("Other models (capacity limit)")));
+    assert_eq!(saved.hours[0].usage.calls, 4097);
+    let today = archive.today(snapshot["now"].as_f64().unwrap()).unwrap();
+    assert_eq!(
+        snapshot["today"]["days"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["usage"]["calls"].as_u64().unwrap())
+            .sum::<u64>(),
+        if day == today { 4097 } else { 0 }
+    );
+}
+
+#[test]
+fn snapshot_today_excludes_saved_calls_from_the_previous_reporting_day() {
+    let f = Fixture::new("UTC");
+    let mut runtime = Runtime::open(f.store.clone()).unwrap();
+    runtime.preferences(prefs()).unwrap();
+    let today = calendar::date(now_ms()).unwrap().date_naive();
+    let midnight = calendar::day(today, chrono_tz::UTC).unwrap().start;
+    let archive = runtime.archive.as_mut().unwrap();
+    assert!(archive
+        .record(
+            &event(midnight - 1.0, "previous-day", UsageSource::Cli),
+            &prefs(),
+            true
+        )
+        .unwrap());
+    let previous = archive.today(midnight - 1.0).unwrap();
+    assert_ne!(previous, archive.today(midnight).unwrap());
+    let snapshot = runtime.snapshot().unwrap();
+    let archive = runtime.archive.as_ref().unwrap();
+    let current = archive.today(snapshot["now"].as_f64().unwrap()).unwrap();
+    assert_eq!(snapshot["today"]["calendar"][0]["day"], current);
+    assert!(snapshot["today"]["days"].as_array().unwrap().is_empty());
+    assert!(snapshot["today"]["hours"].as_array().unwrap().is_empty());
+    assert_eq!(
+        archive
+            .history(&previous, &previous)
+            .unwrap()
+            .days
+            .iter()
+            .map(|row| row.usage.calls)
+            .sum::<u64>(),
+        1
+    );
 }
 
 #[test]
@@ -417,7 +466,7 @@ fn vscode_opportunity_requires_approval_and_does_not_require_delivery() {
         })
         .unwrap();
     runtime.receiver_running = true;
-    let start = now_ms();
+    let start = at("2026-09-30T23:59:45Z");
     runtime.checkpoint(start, false).unwrap();
     runtime.checkpoint(start + 10_000.0, false).unwrap();
     f.store
@@ -431,15 +480,20 @@ fn vscode_opportunity_requires_approval_and_does_not_require_delivery() {
         .unwrap();
     runtime.checkpoint(start + 10_000.0, false).unwrap();
     runtime.checkpoint(start + 20_000.0, false).unwrap();
-    let day = runtime.archive.as_ref().unwrap().today(start).unwrap();
-    let history = runtime
-        .archive
-        .as_ref()
-        .unwrap()
-        .history(&day, &day)
-        .unwrap();
+    let archive = runtime.archive.as_ref().unwrap();
+    let first = archive.today(start).unwrap();
+    let last = archive.today(start + 20_000.0).unwrap();
+    let history = archive.history(&first, &last).unwrap();
     for source in ["vscodeLocal", "vscodeCopilot", "all"] {
         assert_eq!(seconds(&history, source), 10.0);
+        assert_eq!(
+            seconds(&archive.history(&first, &first).unwrap(), source),
+            5.0
+        );
+        assert_eq!(
+            seconds(&archive.history(&last, &last).unwrap(), source),
+            5.0
+        );
     }
     assert!(history.days.is_empty());
 }

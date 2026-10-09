@@ -149,6 +149,16 @@ class PayloadChecks(unittest.TestCase):
         self.assertIn('!include "minimum-build.nsh"', hook)
         self.assertNotIn('${__FILEDIR__}/minimum-build.nsh', hook)
 
+    def test_live_delivery_deadline_has_an_isolated_native_run(self):
+        script = (ROOT / "windows/scripts/build.ps1").read_text()
+        check = "imports_release_runtime_for_live_delivery_within_hook_deadline"
+        suite = next(line for line in script.splitlines() if "cargo test --workspace" in line)
+        isolated = next(line for line in script.splitlines()
+                        if "cargo test -p tokenotch-platform --test runtime" in line)
+        self.assertIn(f"-- --skip {check}", suite)
+        self.assertIn(f"--target $target --locked {check} -- --exact --nocapture", isolated)
+        self.assertLess(script.index(suite), script.index(isolated))
+
 
 class InstallerChecks(unittest.TestCase):
     def setUp(self):
