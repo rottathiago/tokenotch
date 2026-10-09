@@ -180,7 +180,7 @@ class BundleContract(unittest.TestCase):
 
     def universal_commands(self):
         return [
-            ["xcrun", "lipo", "-verify_arch", architecture, str(self.contents / binary)]
+            ["xcrun", "lipo", str(self.contents / binary), "-verify_arch", architecture]
             for binary in ["MacOS/Tokenotch", "Helpers/TokenotchHook"]
             for architecture in ["arm64", "x86_64"]
         ]

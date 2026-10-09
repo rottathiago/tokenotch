@@ -65,6 +65,7 @@ for path, digest in manifest["assets"].items():
 if "--universal" in sys.argv:
     for binary in ["MacOS/Tokenotch", "Helpers/TokenotchHook"]:
         for architecture in ["arm64", "x86_64"]:
-            subprocess.run(["xcrun", "lipo", "-verify_arch", architecture,
-                            str(app / "Contents" / binary)], check=True)
+            # LLVM lipo treats everything after -verify_arch as architecture names.
+            subprocess.run(["xcrun", "lipo", str(app / "Contents" / binary),
+                            "-verify_arch", architecture], check=True)
 print("Bundle identity, resources, and companion verified.")

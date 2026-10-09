@@ -67,7 +67,9 @@ non-relocatable, version-checked product archive that installs only to
 architecture, shows the MIT license, and runs no install scripts.
 The skip-build route requires only packaging tools, not Node/npm or a Swift
 compiler. Both architectures are verified separately in the app and helper
-using `xcrun lipo`, so ambient `PATH` tools cannot mask an invalid bundle.
+using `xcrun lipo`, with the binary before `-verify_arch` for compatibility with
+both LLVM/Xcode and newer Command Line Tools parsers. Ambient `PATH` tools cannot
+mask an invalid bundle.
 
 Development installers stay on the `development` channel, ad-hoc signed and not
 notarized. Sharing unsigned installers is allowed. For a regular public release,
