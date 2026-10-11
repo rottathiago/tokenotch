@@ -90,6 +90,7 @@ as described in the prerequisites rather than relying on copies under `build/`.
 | --- | --- |
 | Documentation | `make docs-check`; inspect rendered headings, tables, links and image descriptions |
 | Core or CLI integration | `make test`, `make smoke`; select affected XCTest cases while iterating |
+| macOS helper delivery | `make smoke-hook` (also included in `make smoke`); isolated native-process exit status and forwarding checks |
 | VS Code companion or telemetry | `make vscode-companion`, `make smoke-telemetry` |
 | History or timelines | `make smoke-history` or `make smoke-timeline` |
 | Native UI or onboarding | `make smoke-notch`; use `NOTCH_SMOKE_ARGS=--onboarding` for focused setup checks |

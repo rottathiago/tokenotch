@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import TokenotchCore
 import os
@@ -5,8 +6,8 @@ import os
 @main
 enum TokenotchHook {
     static func main() {
+        let args = CommandLine.arguments
         do {
-            let args = CommandLine.arguments
             guard args.count == 3, let client = Client(rawValue: args[1]) else { throw TokenotchError.invalidEvent }
             let data = try LocalBridge.readMessage(STDIN_FILENO, limit: HookNormalizer.inputLimit,
                                                    milliseconds: 500, newlineTerminated: false)
@@ -23,6 +24,11 @@ enum TokenotchHook {
             } catch {
                 Logger(subsystem: "io.github.rottathiago.tokenotch", category: "bridge")
                     .error("Could not save bridge-health marker.")
+            }
+            // The extension retries failed telemetry; lifecycle hooks must remain fail-open.
+            if args.count == 3, args[1] == Client.cli.rawValue,
+               ["usage", "context", "contextInvalidated", "compaction", "activity"].contains(args[2]) {
+                exit(EXIT_FAILURE)
             }
         }
     }

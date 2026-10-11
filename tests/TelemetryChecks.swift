@@ -9,16 +9,17 @@ enum TelemetryChecks {
     static func fixture(source: UsageSource = .vscodeLocal, input: Int = 100, output: Int = 10,
                         read: Int? = 40, write: Int? = 20, conversation: String? = "synthetic-session",
                         operation: String = "chat", span: String = "1111111111111111",
-                        model: String = "test-model",
+                        model: String = "test-model", agent: String? = nil, provider: String = "github",
                         at: Date = TelemetryChecks.now) throws -> Data {
         var attributes: [[String: Any]] = [
             ["key": "gen_ai.operation.name", "value": ["stringValue": operation]],
-            ["key": "gen_ai.provider.name", "value": ["stringValue": "github"]],
+            ["key": "gen_ai.provider.name", "value": ["stringValue": provider]],
             ["key": "gen_ai.response.model", "value": ["stringValue": model]],
             ["key": "gen_ai.usage.input_tokens", "value": ["intValue": "\(input)"]],
             ["key": "gen_ai.usage.output_tokens", "value": ["intValue": "\(output)"]],
             ["key": "gen_ai.input.messages", "value": ["stringValue": "private-content-must-not-survive"]]
         ]
+        if let agent { attributes.append(["key": "gen_ai.agent.name", "value": ["stringValue": agent]]) }
         if let conversation { attributes.append(["key": "gen_ai.conversation.id", "value": ["stringValue": conversation]]) }
         if let read { attributes.append(["key": "gen_ai.usage.cache_read.input_tokens", "value": ["intValue": "\(read)"]]) }
         if let write { attributes.append(["key": "gen_ai.usage.cache_creation.input_tokens", "value": ["intValue": "\(write)"]]) }
@@ -52,6 +53,14 @@ enum TelemetryChecks {
         try require(!encoded.contains("private") && !encoded.contains("synthetic-session"), "Strip content and raw identity")
         let decoded = try JSONDecoder().decode(ActivityEvent.self, from: Data(encoded.utf8))
         try require(decoded == event, "Round-trip metric provenance")
+        for agent in ["tool/runSubagent", "panel/agent", "panel/ask", "custom/debug-name"] {
+            for importing in [false, true] {
+                let named = try CopilotOTelNormalizer.decode(fixture(agent: agent), source: .vscodeLocal,
+                    now: importing ? now.addingTimeInterval(86_400) : now, importing: importing)
+                try require(named.events == [event] && named.filtered == 0 && named.rejected == 0,
+                            "Local request debug names must not drop calls or change model, token or call identity")
+            }
+        }
         var ledger = TokenLedger()
         try ledger.observe(event, now: now)
         try ledger.observe(event, now: now)
@@ -68,14 +77,24 @@ enum TelemetryChecks {
                                                       source: .vscodeLocal, now: now)
         try require(missing.events[0].tokens?.cacheInputReported == false && missing.unlinked == 1,
                     "Missing cache and session metadata remain unavailable")
-        let root = try CopilotOTelNormalizer.decode(fixture(operation: "invoke_agent"), source: .vscodeLocal, now: now)
+        let root = try CopilotOTelNormalizer.decode(fixture(operation: "invoke_agent", agent: "tool/runSubagent"),
+                                                    source: .vscodeLocal, now: now)
         try require(root.events.isEmpty && root.filtered == 1, "Exclude parent aggregate")
+        let otherProvider = try CopilotOTelNormalizer.decode(fixture(agent: "tool/runSubagent", provider: "other"),
+                                                             source: .vscodeLocal, now: now)
+        try require(otherProvider.events.isEmpty && otherProvider.filtered == 1, "Exclude non-Copilot providers")
         let invalid = try CopilotOTelNormalizer.decode(fixture(input: 1), source: .vscodeLocal, now: now)
         try require(invalid.events.isEmpty && invalid.rejected == 1, "Reject contradictory categories")
         let terminal = try CopilotOTelNormalizer.decode(fixture(source: .vscodeCopilot), source: .vscodeLocal, now: now)
         try require(terminal.events.isEmpty && terminal.filtered == 1, "Exclude terminal CLI from Local endpoint")
-        let host = try CopilotOTelNormalizer.decode(fixture(source: .vscodeCopilot), source: .vscodeCopilot, now: now)
+        let host = try CopilotOTelNormalizer.decode(fixture(source: .vscodeCopilot, agent: "copilotcli"),
+                                                  source: .vscodeCopilot, now: now)
         try require(host.events.count == 1, "Accept source-isolated Copilot host")
+        let otherAgent = try CopilotOTelNormalizer.decode(fixture(source: .vscodeCopilot, agent: "other"),
+                                                         source: .vscodeCopilot, now: now)
+        try require(otherAgent.events.isEmpty && otherAgent.filtered == 1, "Preserve Agent Host agent filtering")
+        let wrongService = try CopilotOTelNormalizer.decode(data, source: .vscodeCopilot, now: now)
+        try require(wrongService.events.isEmpty && wrongService.rejected == 1, "Preserve source-specific service admission")
         let imported = try CopilotOTelNormalizer.decode(data, source: .vscodeLocal, now: now.addingTimeInterval(86400), importing: true)
         try require(imported.events[0].tokens?.callID == event.tokens?.callID, "Import identity equals live identity")
         try ledger.observe(event, now: now.addingTimeInterval(300), allowingDelayed: true)

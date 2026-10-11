@@ -150,6 +150,20 @@ enum TelemetryImportChecks {
         ]
         try write(node, to: file)
         try require(try preview(file).events == live.events, "SDK 2.x JSONL identity mismatch")
+        for agent in ["tool/runSubagent", "panel/agent", "panel/ask"] {
+            var values = attributes()
+            values["gen_ai.agent.name"] = agent
+            try write(envelope([span(values: values)]), to: file)
+            let otlp = try preview(file)
+            try require(otlp.events == live.events && otlp.filtered == 0 && otlp.rejected == 0,
+                        "OTLP import must preserve Local model calls with request debug names")
+            var namedNode = node
+            namedNode["attributes"] = values
+            try write(namedNode, to: file)
+            let readable = try preview(file)
+            try require(readable.events == live.events && readable.filtered == 0 && readable.rejected == 0,
+                        "ReadableSpan import must preserve Local model calls with request debug names")
+        }
         var maximumLine = node
         maximumLine["ignored"] = ""
         let baseSize = try JSONSerialization.data(withJSONObject: maximumLine, options: [.sortedKeys]).count
