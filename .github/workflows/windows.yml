@@ -66,6 +66,10 @@ jobs:
               if ($LASTEXITCODE -ne 0) { $failures++ }
             }
             if ($failures -ne 0) { throw "$failures native import/live-delivery attempts failed." }
+            cargo test -p tokenotch-platform --lib --test runtime --target ${{ matrix.target }} --locked -- --skip imports_release_runtime_for_live_delivery_within_hook_deadline
+            if ($LASTEXITCODE -ne 0) { throw 'Native archive/runtime regressions failed.' }
+            cargo test -p tokenotch-platform --test runtime --target ${{ matrix.target }} --locked maximum_size_import_keeps_live_delivery_within_hook_deadline -- --exact --ignored --nocapture
+            if ($LASTEXITCODE -ne 0) { throw 'Native maximum-size import regression failed.' }
           } finally { Pop-Location }
       - name: Build and package unsigned local app
         run: ./windows/scripts/package.ps1 -Architecture ${{ matrix.architecture }} -AllowUnsigned

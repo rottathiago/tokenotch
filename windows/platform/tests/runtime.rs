@@ -117,6 +117,38 @@ async fn imports_release_runtime_for_live_delivery_within_hook_deadline() {
     import_with_live_delivery(4096).await;
 }
 
+#[test]
+fn import_batches_bound_processed_observations_and_advance_on_replays() {
+    let f = Fixture::new();
+    let preview = import_preview(&f, 130);
+    let prefs = Preferences::default();
+    let mut archive = Archive::open(&f.store).unwrap();
+    for replay in [false, true] {
+        let mut processed = 0;
+        while processed < preview.events.len() {
+            let (advanced, recorded) = archive
+                .record_import_batch(&preview.events[processed..], &prefs)
+                .unwrap();
+            assert!((1..=64).contains(&advanced));
+            assert_eq!(recorded, if replay { 0 } else { advanced });
+            processed += advanced;
+        }
+        assert_eq!(processed, preview.events.len());
+        assert_eq!(archive.history_revision(), 130);
+    }
+    let day = archive.today(preview.events[0].timestamp_unix_ms).unwrap();
+    assert_eq!(
+        archive
+            .history(&day, &day)
+            .unwrap()
+            .days
+            .iter()
+            .map(|row| row.usage.calls)
+            .sum::<u64>(),
+        130
+    );
+}
+
 #[tokio::test]
 #[ignore = "Exercises the 100,000-span limit with concurrent live delivery"]
 async fn maximum_size_import_keeps_live_delivery_within_hook_deadline() {
