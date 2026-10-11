@@ -176,8 +176,12 @@ Imports of `github-copilot` spans require `service.namespace = vscode.agent-host
 in OTLP, JSONL and SQLite alike; terminal/SDK exports without that provenance are
 rejected rather than relabeled as Agent Host and counted again.
 Import verification and writes run on
-blocking workers, with small transactional batches that release the runtime lock
-between writes so live collection can continue. Pausing or clearing history stops
+blocking workers, with transactions capped at 64 observations and a 25 ms
+processing budget. Each batch finishes its current observation and full-synchronous
+commit before releasing the runtime lock, so slow imports yield smaller batches
+without weakening durability or the hook's 900 ms acknowledgement deadline.
+The processing budget cannot interrupt an individual observation or disk flush.
+Pausing or clearing history stops
 the remaining batches, even if recording is immediately resumed. Completed
 batches remain saved unless cleared; previewing and retrying an interrupted import
 does not duplicate them. Logical deletion is not forensic erasure.

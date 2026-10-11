@@ -670,15 +670,14 @@ pub async fn commit_import(shared: Shared, fingerprint: String) -> Result<usize>
     .await
     .map_err(|_| "Export verification could not finish.")??;
 
-    let mut events = preview.events.into_iter();
+    let events = Arc::new(preview.events);
+    let mut processed = 0;
     let mut calls = 0;
     loop {
-        // Bound each transaction and release the runtime between batches so live
-        // delivery can still meet the hook's 900 ms acknowledgement deadline.
-        let batch: Vec<_> = events.by_ref().take(64).collect();
-        let finished = batch.is_empty();
+        let finished = processed == events.len();
+        let events = events.clone();
         let state = shared.clone();
-        calls += tokio::task::spawn_blocking(move || {
+        let (advanced, recorded) = tokio::task::spawn_blocking(move || {
             let mut state = state.lock().map_err(|_| "Archive state is unavailable.")?;
             if !state.preferences.history || state.import_generation != generation {
                 return Err("Import stopped because usage history was paused or cleared. Preview the export again to resume; already saved calls will not be duplicated.".to_owned());
@@ -689,9 +688,9 @@ pub async fn commit_import(shared: Shared, fingerprint: String) -> Result<usize>
                 .as_mut()
                 .ok_or("The history archive is unavailable.")?;
             let result = if finished {
-                archive.prune(prefs.retention_days, now_ms()).map(|()| 0)
+                archive.prune(prefs.retention_days, now_ms()).map(|()| (0, 0))
             } else {
-                archive.record_batch(&batch, &prefs, true)
+                archive.record_import_batch(&events[processed..], &prefs)
             };
             match result {
                 Ok(count) => Ok(count),
@@ -700,6 +699,8 @@ pub async fn commit_import(shared: Shared, fingerprint: String) -> Result<usize>
         })
         .await
         .map_err(|_| "Export import could not finish; preview again to resume without duplicating saved calls.")??;
+        processed += advanced;
+        calls += recorded;
         if finished {
             return Ok(calls);
         }

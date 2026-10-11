@@ -117,6 +117,38 @@ async fn imports_release_runtime_for_live_delivery_within_hook_deadline() {
     import_with_live_delivery(4096).await;
 }
 
+#[test]
+fn import_batches_bound_processed_observations_and_advance_on_replays() {
+    let f = Fixture::new();
+    let preview = import_preview(&f, 130);
+    let prefs = Preferences::default();
+    let mut archive = Archive::open(&f.store).unwrap();
+    for replay in [false, true] {
+        let mut processed = 0;
+        while processed < preview.events.len() {
+            let (advanced, recorded) = archive
+                .record_import_batch(&preview.events[processed..], &prefs)
+                .unwrap();
+            assert!((1..=64).contains(&advanced));
+            assert_eq!(recorded, if replay { 0 } else { advanced });
+            processed += advanced;
+        }
+        assert_eq!(processed, preview.events.len());
+        assert_eq!(archive.history_revision(), 130);
+    }
+    let day = archive.today(preview.events[0].timestamp_unix_ms).unwrap();
+    assert_eq!(
+        archive
+            .history(&day, &day)
+            .unwrap()
+            .days
+            .iter()
+            .map(|row| row.usage.calls)
+            .sum::<u64>(),
+        130
+    );
+}
+
 #[tokio::test]
 #[ignore = "Exercises the 100,000-span limit with concurrent live delivery"]
 async fn maximum_size_import_keeps_live_delivery_within_hook_deadline() {
@@ -145,8 +177,10 @@ async fn import_with_live_delivery(count: usize) {
         tokio::time::sleep(Duration::from_millis(5)).await;
         let began = Instant::now();
         let state = shared.clone();
-        let progress = tokio::task::spawn_blocking(move || {
+        let (progress, scheduled, waiting, accepting) = tokio::task::spawn_blocking(move || {
+            let started = Instant::now();
             let mut state = state.lock().unwrap();
+            let acquired = Instant::now();
             let progress = state.archive.as_ref().unwrap().history_revision();
             let mut usage = event("usage", now_ms());
             usage.tokens.as_mut().unwrap().call_id = hook::digest(&format!("live-{delivered}"));
@@ -156,11 +190,22 @@ async fn import_with_live_delivery(count: usize) {
                     event: usage,
                 })
                 .unwrap();
-            progress
+            (
+                progress,
+                started.duration_since(began),
+                acquired.duration_since(started),
+                acquired.elapsed(),
+            )
         })
         .await
         .unwrap();
-        longest = longest.max(began.elapsed());
+        let elapsed = began.elapsed();
+        if elapsed >= Duration::from_millis(100) {
+            eprintln!(
+                "Live delivery {delivered} at revision {progress}: total {elapsed:?}, scheduling {scheduled:?}, lock wait {waiting:?}, acceptance {accepting:?}"
+            );
+        }
+        longest = longest.max(elapsed);
         interleaved |= progress > delivered && progress < count as u64 + delivered;
         delivered += 1;
     }

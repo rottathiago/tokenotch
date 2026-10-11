@@ -7,7 +7,10 @@ use chrono::{NaiveDate, Offset};
 use chrono_tz::Tz;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
 use tokenotch_core::hook::{digest, EventKind, Observation, Tokens, UsageSource};
 
 fn db_error(_: rusqlite::Error) -> String {
@@ -445,15 +448,47 @@ impl Archive {
         prefs: &Preferences,
         imported: bool,
     ) -> Result<usize> {
+        self.record_batch_inner(events, prefs, imported, None)
+            .map(|(_, recorded)| recorded)
+    }
+
+    /// Commits a bounded prefix and returns (processed observations, newly recorded calls).
+    pub fn record_import_batch(
+        &mut self,
+        events: &[Observation],
+        prefs: &Preferences,
+    ) -> Result<(usize, usize)> {
+        self.record_batch_inner(
+            &events[..events.len().min(64)],
+            prefs,
+            true,
+            Some(Duration::from_millis(25)),
+        )
+    }
+
+    fn record_batch_inner(
+        &mut self,
+        events: &[Observation],
+        prefs: &Preferences,
+        imported: bool,
+        budget: Option<Duration>,
+    ) -> Result<(usize, usize)> {
+        let began = Instant::now();
         let tx = self.db.unchecked_transaction().map_err(db_error)?;
         let since = number_meta(&tx, "recording-since")?;
+        let mut processed = 0;
         let mut recorded = 0;
         for event in events {
             recorded += usize::from(self.record_in(&tx, event, prefs, imported, since)?);
+            processed += 1;
+            // Finish the current observation and durable commit before yielding.
+            if budget.is_some_and(|budget| began.elapsed() >= budget) {
+                break;
+            }
         }
         tx.commit().map_err(db_error)?;
         self.revision = self.revision.wrapping_add(recorded as u64);
-        Ok(recorded)
+        Ok((processed, recorded))
     }
 
     fn record_in(
@@ -1135,6 +1170,64 @@ fn coverage_rows(db: &Connection, table: &str, start: &str, end: &str) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn timed_import_batches_commit_only_the_processed_prefix_and_advance_duplicates() {
+        let root = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("tokenotch-test-{}", random_id().unwrap()));
+        let store = Store::open(root.clone()).unwrap();
+        let mut archive = Archive::open(&store).unwrap();
+        let prefs = Preferences::default();
+        let now = crate::transport::now_ms();
+        let events: Vec<_> = (0..2)
+            .map(|index| {
+                tokenotch_core::hook::normalize(
+                    &serde_json::to_vec(&serde_json::json!({
+                        "sessionId": "timed-import",
+                        "timestamp": now,
+                        "eventId": format!("call-{index}"),
+                        "usageContract": 1,
+                        "inputTokens": 100,
+                        "outputTokens": 20
+                    }))
+                    .unwrap(),
+                    tokenotch_core::hook::Source::Cli,
+                    "usage",
+                    now,
+                )
+                .unwrap()
+                .unwrap()
+            })
+            .collect();
+        assert_eq!(
+            archive
+                .record_batch_inner(&events, &prefs, true, Some(Duration::ZERO))
+                .unwrap(),
+            (1, 1)
+        );
+        assert_eq!(archive.history_revision(), 1);
+        let day = archive.today(now).unwrap();
+        assert_eq!(archive.history(&day, &day).unwrap().days[0].usage.calls, 1);
+        assert_eq!(
+            archive
+                .record_batch_inner(&events, &prefs, true, Some(Duration::ZERO))
+                .unwrap(),
+            (1, 0)
+        );
+        assert_eq!(archive.history_revision(), 1);
+        assert_eq!(
+            archive
+                .record_batch_inner(&events[1..], &prefs, true, Some(Duration::ZERO))
+                .unwrap(),
+            (1, 1)
+        );
+        assert_eq!(archive.history_revision(), 2);
+        assert_eq!(archive.history(&day, &day).unwrap().days[0].usage.calls, 2);
+        drop(archive);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn gap_lookup_coalesces_points_overlaps_and_bridged_intervals_in_any_order() {
