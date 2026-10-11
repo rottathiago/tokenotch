@@ -60,6 +60,12 @@ listed, while totals include all retained calls.
 Restart, clear live observations and CLI removal reset these memory-only observations.
 Neither the extension nor the app creates prompts, tools or inference requests.
 Node dependencies come from the installed CLI, not a downloaded package.
+On macOS, helper failures for extension usage, context, context invalidation,
+compaction and activity delivery return a nonzero exit status, retaining the
+event in the extension's retry queue until delivery or the two-minute freshness
+limit. Retries preserve the original event ID and timestamp. Lifecycle and
+notification hook failures remain fail-open; all failures still use sanitized
+logging and the bridge-health marker, never stdout.
 
 ### Live per-session context
 
@@ -170,6 +176,12 @@ unsupported rather than being relabeled as Local Chat. Conversation identity
 comes from `gen_ai.conversation.id`, never the window resource `session.id`.
 Calls without that identity retain numeric usage but have no invented shared
 session or lifecycle link.
+
+On macOS, Local Chat admission uses the service, provider and operation, not a
+fixed `gen_ai.agent.name` list: VS Code fills that attribute with request debug
+names such as `tool/runSubagent` and `<location>/<intent>`. These model-call spans
+are retained in both live collection and historical imports, while the debug
+name is discarded. Agent Host's separate agent-name filter is unchanged.
 
 The verified token mappings use inclusive input: subtract known cache-read and
 cache-creation counts once, preserve reporting availability, and keep output

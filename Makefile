@@ -1,4 +1,4 @@
-.PHONY: build universal preflight metadata test test-ci smoke smoke-contracts smoke-telemetry vscode-companion smoke-history smoke-timeline smoke-notch gen test-xcode run clean package release docs-check docs-links-external
+.PHONY: build universal preflight metadata test test-ci smoke smoke-hook smoke-contracts smoke-telemetry vscode-companion smoke-history smoke-timeline smoke-notch gen test-xcode run clean package release docs-check docs-links-external
 
 docs-check:
 	node scripts/docs/check.mjs
@@ -31,7 +31,7 @@ test test-ci:
 	python3 scripts/test-preflight.py
 	python3 scripts/test-project.py
 
-smoke:
+smoke: smoke-hook
 	mkdir -p build
 	swiftc -swift-version 5 -parse-as-library sources/Core/*.swift \
 		sources/Notch/{NotchGeometry,NotchEdge,SideNotchShape,NotchLayout,FullScreenDetector}.swift \
@@ -40,6 +40,15 @@ smoke:
 	build/tokenotch-smoke
 	node --experimental-vm-modules scripts/extension-smoke.mjs
 	node --experimental-vm-modules scripts/context-extension-smoke.mjs
+
+smoke-hook:
+	mkdir -p build/hook-smoke
+	xcrun swiftc -swift-version 5 -parse-as-library -emit-module -emit-library -static \
+		-module-name TokenotchCore sources/Core/*.swift \
+		-emit-module-path build/hook-smoke/TokenotchCore.swiftmodule -o build/hook-smoke/libTokenotchCore.a
+	xcrun swiftc -swift-version 5 -parse-as-library -I build/hook-smoke -L build/hook-smoke \
+		-lTokenotchCore -lsqlite3 sources/Hook/*.swift -o build/hook-smoke/TokenotchHook
+	python3 scripts/hook-smoke.py build/hook-smoke/TokenotchHook
 
 smoke-telemetry:
 	mkdir -p build

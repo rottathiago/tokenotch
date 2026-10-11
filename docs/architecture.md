@@ -202,6 +202,10 @@ Windows accepts queued CLI usage within its 24-hour receipt window; other hooks
 and macOS retain the two-minute delivery freshness limit. Expiration emits an
 explicit incomplete-telemetry warning rather than blocking newer events.
 The pending queue is not persisted across extension termination or reload.
+On macOS, failed extension telemetry delivery exits the helper with a nonzero
+status so the queue retries; this includes usage, context, context invalidation,
+compaction and activity snapshots. Lifecycle and notification hooks remain
+fail-open with no stdout, even when the bridge is unavailable.
 
 ### Token accounting
 
@@ -251,7 +255,7 @@ sequenceDiagram
     VS->>RX: POST /<token>/<source>/v1/traces  (application/json)
     Note over RX: Loopback only. Token must match (else 401).<br/>No Origin header, no compression.<br/>Body ≤ 4 MiB. Metrics and logs are ACKed and dropped.
     RX->>N: raw OTLP JSON
-    Note over N: Read only allow-listed attributes.<br/>Keep spans where operation = chat, provider = github,<br/>agent ∈ {copilot, GitHub Copilot Chat, copilotcli},<br/>and service matches the source.
+    Note over N: Read only allow-listed attributes.<br/>Keep spans where operation = chat, provider = github,<br/>and service matches the source.<br/>Local Chat agent names are debug labels;<br/>Agent Host retains the Copilot-name filter.
     N->>N: session = SHA-256("otel:source:" + conversation.id)<br/>callID = SHA-256("otel:source:" + traceId + spanId)<br/>input = input_tokens − cache_read − cache_creation
     N->>APP: ActivityEvent(kind: usage, tokens: TokenUsage)
     RX-->>VS: 200 {} (or partialSuccess with a rejected count)
@@ -269,7 +273,7 @@ misconfigured to send it.
 | --- | --- |
 | `gen_ai.operation.name` | Filter: must be `chat` |
 | `gen_ai.provider.name` | Filter: must be `github` |
-| `gen_ai.agent.name` | Filter: must be a Copilot agent |
+| `gen_ai.agent.name` | Ignored for macOS Local Chat (request debug name); Copilot-name filter for Agent Host |
 | `gen_ai.conversation.id` | Hashed into a session ID (never stored raw) |
 | `gen_ai.response.model` / `gen_ai.request.model` | Model name (response model preferred) |
 | `gen_ai.usage.input_tokens`, `…output_tokens` | Token counts |

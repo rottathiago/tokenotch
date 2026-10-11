@@ -64,7 +64,8 @@ public enum CopilotOTelNormalizer {
                             result.filtered += 1
                             continue
                         }
-                        if let agent = attrs["gen_ai.agent.name"] as? String,
+                        // Local Chat uses request debug names here, including tool/runSubagent.
+                        if source == .vscodeCopilot, let agent = attrs["gen_ai.agent.name"] as? String,
                            !["copilot", "GitHub Copilot Chat", "copilotcli"].contains(agent) {
                             result.filtered += 1
                             continue
