@@ -679,7 +679,9 @@ pub async fn commit_import(shared: Shared, fingerprint: String) -> Result<usize>
         let finished = batch.is_empty();
         let state = shared.clone();
         calls += tokio::task::spawn_blocking(move || {
+            let began = std::time::Instant::now();
             let mut state = state.lock().map_err(|_| "Archive state is unavailable.")?;
+            let acquired = std::time::Instant::now();
             if !state.preferences.history || state.import_generation != generation {
                 return Err("Import stopped because usage history was paused or cleared. Preview the export again to resume; already saved calls will not be duplicated.".to_owned());
             }
@@ -693,6 +695,15 @@ pub async fn commit_import(shared: Shared, fingerprint: String) -> Result<usize>
             } else {
                 archive.record_batch(&batch, &prefs, true)
             };
+            let elapsed = acquired.elapsed();
+            if elapsed >= std::time::Duration::from_millis(100) {
+                eprintln!(
+                    "Import batch of {}: lock wait {:?}, transaction {:?}",
+                    batch.len(),
+                    acquired.duration_since(began),
+                    elapsed,
+                );
+            }
             match result {
                 Ok(count) => Ok(count),
                 Err(message) => state.archive_failure(message),

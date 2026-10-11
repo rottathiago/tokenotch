@@ -54,6 +54,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Release metadata checks failed.' }
           python windows/tests/test_packaging.py
           if ($LASTEXITCODE -ne 0) { throw 'Payload architecture checks failed.' }
+      - name: Diagnose native ARM64 import contention
+        if: matrix.architecture == 'arm64'
+        run: |
+          Push-Location windows
+          try {
+            $failures = 0
+            foreach ($attempt in 1..5) {
+              Write-Host "Native import/live delivery attempt $attempt"
+              cargo test -p tokenotch-platform --test runtime --target ${{ matrix.target }} --locked imports_release_runtime_for_live_delivery_within_hook_deadline -- --exact --nocapture
+              if ($LASTEXITCODE -ne 0) { $failures++ }
+            }
+            if ($failures -ne 0) { throw "$failures native import/live-delivery attempts failed." }
+          } finally { Pop-Location }
       - name: Build and package unsigned local app
         run: ./windows/scripts/package.ps1 -Architecture ${{ matrix.architecture }} -AllowUnsigned
       - name: Browser presentation checks

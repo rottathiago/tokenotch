@@ -145,8 +145,10 @@ async fn import_with_live_delivery(count: usize) {
         tokio::time::sleep(Duration::from_millis(5)).await;
         let began = Instant::now();
         let state = shared.clone();
-        let progress = tokio::task::spawn_blocking(move || {
+        let (progress, scheduled, waiting, accepting) = tokio::task::spawn_blocking(move || {
+            let started = Instant::now();
             let mut state = state.lock().unwrap();
+            let acquired = Instant::now();
             let progress = state.archive.as_ref().unwrap().history_revision();
             let mut usage = event("usage", now_ms());
             usage.tokens.as_mut().unwrap().call_id = hook::digest(&format!("live-{delivered}"));
@@ -156,11 +158,22 @@ async fn import_with_live_delivery(count: usize) {
                     event: usage,
                 })
                 .unwrap();
-            progress
+            (
+                progress,
+                started.duration_since(began),
+                acquired.duration_since(started),
+                acquired.elapsed(),
+            )
         })
         .await
         .unwrap();
-        longest = longest.max(began.elapsed());
+        let elapsed = began.elapsed();
+        if elapsed >= Duration::from_millis(100) {
+            eprintln!(
+                "Live delivery {delivered} at revision {progress}: total {elapsed:?}, scheduling {scheduled:?}, lock wait {waiting:?}, acceptance {accepting:?}"
+            );
+        }
+        longest = longest.max(elapsed);
         interleaved |= progress > delivered && progress < count as u64 + delivered;
         delivered += 1;
     }
