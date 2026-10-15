@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { checkLinks, checkMarkdown, documents } from "./check.mjs";
+
+const require = createRequire(import.meta.url);
+const markdownlintRequire = createRequire(require.resolve("markdownlint-cli2"));
+const { parse: parseToml } = markdownlintRequire("smol-toml");
 
 function fixture(t, files) {
   const root = mkdtempSync(join(tmpdir(), "tokenotch-docs-"));
@@ -40,6 +45,24 @@ test("Markdown structure errors fail and valid Markdown passes", (t) => {
   assert.doesNotThrow(() => checkMarkdown(root, ["README.md"]));
   writeFileSync(join(root, "README.md"), "# Readme\nText without a heading separator.\n");
   assert.throws(() => checkMarkdown(root, ["README.md"]), /MD022/);
+});
+
+test("inline and display math preserve Markdown checks", (t) => {
+  const content = "# Math\n\nInline $x + y$.\n\n$$\nx^2 + y^2 = z^2\n$$\n";
+  const root = fixture(t, { "README.md": content });
+  assert.doesNotThrow(() => checkMarkdown(root, ["README.md"]));
+  writeFileSync(join(root, "README.md"), content.replace("# Math\n\n", "# Math\n"));
+  assert.throws(() => checkMarkdown(root, ["README.md"]), /MD022/);
+});
+
+test("TOML configuration handles independent keys and rejects malformed input", () => {
+  const config = parseToml('globs = ["**/*.md"]\n[config]\nMD013 = false\n');
+  assert.deepEqual(config.globs, ["**/*.md"]);
+  assert.deepEqual(Object.entries(config.config), [["MD013", false]]);
+  const entries = Array.from({ length: 2048 }, (_, index) => [`key${index}`, index]);
+  const content = entries.map(([key, value]) => `${key} = ${value}`).join("\n");
+  assert.deepEqual(Object.entries(parseToml(content)), entries);
+  assert.throws(() => parseToml("key = ["));
 });
 
 test("local fragments, duplicate heading slugs, reference links and archived relative paths resolve", (t) => {

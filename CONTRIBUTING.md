@@ -49,6 +49,13 @@ Install the pinned lychee release appropriate to your host and put `lychee` on
 `PATH`. Documentation tooling is development-only; it is not packaged in Tokenotch.
 Update tool pins and lockfiles together when intentionally upgrading them.
 
+The documentation package temporarily overrides smol-toml and KaTeX within
+their consuming dependencies for
+[GHSA-r4xh-jqrq-34v2](https://github.com/advisories/GHSA-r4xh-jqrq-34v2) and
+[GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7).
+Remove each override when an upstream dependency update resolves to a fixed
+version without it, and retain the Markdown/math and TOML compatibility checks.
+
 ## Repository map
 
 | Path | Responsibility |

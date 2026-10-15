@@ -454,6 +454,13 @@ x64 and ARM64 payloads. This is a build target, not a compatibility certificatio
 Use separate local NTFS checkouts in Windows. Do not share Cargo build output,
 `node_modules`, app data or credentials between hosts.
 
+The cross-platform `Cargo.lock` also includes Tauri's Linux/BSD GTK dependencies.
+The current Windows x64 and ARM64 release dependency trees, including the
+`custom-protocol` feature, exclude glib. Recheck both target graphs when changing
+Tauri dependencies or features; do not remove other platforms' lockfile entries
+or force an incompatible GTK-family upgrade to address a lockfile-only alert.
+This workspace is not a supported Linux build.
+
 Required development tools:
 
 - Rust 1.98.1 through rustup, including rustfmt and Clippy.
