@@ -132,20 +132,24 @@ public struct TokenUsage: Codable, Equatable, Sendable {
     public let model: String?
     public let durationMs: Double?
     public let timeToFirstTokenMs: Double?
+    public let estimatedCostMicros: Int64?
     public init(callID: String, input: Int64, output: Int64, cacheInput: Int64 = 0,
                 cacheInputReported: Bool? = nil, model: String? = nil,
                 durationMs: Double? = nil, timeToFirstTokenMs: Double? = nil,
-                cacheWrite: Int64 = 0, cacheWriteReported: Bool? = nil) {
+                cacheWrite: Int64 = 0, cacheWriteReported: Bool? = nil,
+                estimatedCostMicros: Int64? = nil) {
         self.callID = callID; self.input = input; self.output = output; self.cacheInput = cacheInput; self.model = model
         self.cacheInputReported = cacheInputReported
         self.cacheWrite = cacheWrite
         self.cacheWriteReported = cacheWriteReported
         accountingVersion = Self.accountingVersion
         self.durationMs = durationMs; self.timeToFirstTokenMs = timeToFirstTokenMs
+        self.estimatedCostMicros = estimatedCostMicros
     }
     private enum CodingKeys: String, CodingKey {
         case callID, input, output, cacheInput, cacheInputReported, model, durationMs, timeToFirstTokenMs
         case cacheWrite, cacheWriteReported, accountingVersion
+        case estimatedCostMicros
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -165,6 +169,7 @@ public struct TokenUsage: Codable, Equatable, Sendable {
         model = try values.decodeIfPresent(String.self, forKey: .model)
         durationMs = try values.decodeIfPresent(Double.self, forKey: .durationMs)
         timeToFirstTokenMs = try values.decodeIfPresent(Double.self, forKey: .timeToFirstTokenMs)
+        estimatedCostMicros = try values.decodeIfPresent(Int64.self, forKey: .estimatedCostMicros)
     }
     public static func validLatency(_ value: Double) -> Bool { value.isFinite && (0...86_400_000).contains(value) }
     public func validate() throws {
@@ -175,6 +180,11 @@ public struct TokenUsage: Codable, Equatable, Sendable {
               (0...1_000_000_000).contains(cacheWrite),
               cacheInputReported != false || cacheInput == 0,
               cacheWriteReported != false || cacheWrite == 0 else { throw TokenotchError.invalidEvent }
+        if let estimatedCostMicros {
+            guard (0...EstimatedCostCoverage.perCallLimit).contains(estimatedCostMicros) else {
+                throw TokenotchError.invalidEvent
+            }
+        }
         for value in [durationMs, timeToFirstTokenMs].compactMap({ $0 }) {
             guard Self.validLatency(value) else { throw TokenotchError.invalidEvent }
         }
@@ -198,6 +208,22 @@ public struct TokenUsage: Codable, Equatable, Sendable {
                 reportedCalls: cacheWriteReported == true ? 1 : 0,
                 unreportedCalls: cacheWriteReported == false ? 1 : 0, kind: .write),
             unverifiedCalls: accountingVersion == nil ? 1 : 0)
+    }
+}
+
+public struct EstimatedCostCoverage: Equatable, Sendable {
+    public static let perCallLimit: Int64 = 1_000_000_000_000
+    public let micros: Int64
+    public let calls: Int64
+    public let reportedCalls: Int64
+    public init(micros: Int64, calls: Int64, reportedCalls: Int64) {
+        self.micros = micros; self.calls = calls; self.reportedCalls = reportedCalls
+    }
+    public var value: Int64? { reportedCalls > 0 ? micros : nil }
+    public var isIncomplete: Bool { reportedCalls < calls }
+    public var isValid: Bool {
+        micros >= 0 && calls >= 0 && (0...calls).contains(reportedCalls) &&
+            (reportedCalls > 0 || micros == 0)
     }
 }
 
@@ -333,6 +359,11 @@ public struct ObservedTokens {
     public var cacheWrite: Int64 = 0
     public var cacheWriteReportedCalls: Int64 = 0
     public var cacheWriteUnreportedCalls: Int64 = 0
+    public var estimatedCostMicros: Int64 = 0
+    public var costReportedCalls: Int64 = 0
+    public var costCoverage: EstimatedCostCoverage {
+        EstimatedCostCoverage(micros: estimatedCostMicros, calls: Int64(calls), reportedCalls: costReportedCalls)
+    }
     public var total: Int64 { input + output + cacheInput + cacheWrite }
     public var cacheCoverage: CacheInputCoverage {
         CacheInputCoverage(tokens: cacheInput, calls: Int64(calls),
@@ -348,7 +379,8 @@ public struct ObservedTokens {
 public struct ObservedModelTokens: Identifiable {
     public let model: String?
     public let tokens: ObservedTokens
-    public var id: String { model ?? "" }
+    public var provider: UsageProvider = .copilot
+    public var id: String { provider == .copilot ? model ?? "" : "\(provider.rawValue):\(model ?? "")" }
     public var title: String { model ?? "Model unavailable" }
 }
 
@@ -392,6 +424,8 @@ public struct ObservedSessionMetrics: Identifiable {
     public let lastObserved: Date
     public var source: UsageSource = .cli
     public var sessionReported = true
+    public var sources: Set<UsageSource> = []
+    public var provider: UsageProvider { source.provider }
 }
 
 public struct TokenLedger {
@@ -420,8 +454,9 @@ public struct TokenLedger {
             return
         }
         guard let tokens = event.tokens else { throw TokenotchError.invalidEvent }
-        guard samples[tokens.callID] == nil else { return }
-        samples[tokens.callID] = Sample(session: event.session, usage: tokens, date: event.timestamp,
+        let identity = "\(event.provider.rawValue):\(tokens.callID)"
+        guard samples[identity] == nil else { return }
+        samples[identity] = Sample(session: event.session, usage: tokens, date: event.timestamp,
                                        source: event.usageSource, sessionReported: event.metricSessionReported != false)
         hourlyCache = nil
         if samples.count > 4096, let first = samples.min(by: { $0.value.date < $1.value.date }) {
@@ -443,6 +478,14 @@ public struct TokenLedger {
         var result = self
         result.samples = samples.filter { $0.value.source == source }
         if source != .cli { result.contexts = ContextReadings() }
+        result.hourlyCache = nil
+        return result
+    }
+
+    public func filtered(provider: UsageProvider) -> Self {
+        var result = self
+        result.samples = samples.filter { $0.value.source.provider == provider }
+        if provider != .copilot { result.contexts = ContextReadings() }
         result.hourlyCache = nil
         return result
     }
@@ -491,8 +534,9 @@ public struct TokenLedger {
     }
 
     private static func models(_ samples: [Sample]) -> [ObservedModelTokens] {
-        Dictionary(grouping: samples, by: { $0.usage.model ?? "" }).map { key, values in
-            ObservedModelTokens(model: key.isEmpty ? nil : key, tokens: Self.total(values)!)
+        Dictionary(grouping: samples, by: { "\($0.source.provider.rawValue):\($0.usage.model ?? "")" }).map { _, values in
+            ObservedModelTokens(model: values[0].usage.model, tokens: Self.total(values)!,
+                                provider: values[0].source.provider)
         }.sorted {
             let left = $0.tokens.total
             let right = $1.tokens.total
@@ -506,10 +550,14 @@ public struct TokenLedger {
             let tokens = groups[key].flatMap(Self.total)
             let reading = contexts.values[key]
             let context = reading?.context
+            let latest = groups[key]?.max {
+                $0.date == $1.date ? $0.source.rawValue < $1.source.rawValue : $0.date < $1.date
+            }
             return ObservedSessionMetrics(id: key, tokens: tokens, context: context,
                 lastObserved: max(tokens?.lastObserved ?? .distantPast, reading?.date ?? .distantPast),
-                source: groups[key]?.first?.source ?? .cli,
-                sessionReported: groups[key]?.first?.sessionReported ?? true)
+                source: latest?.source ?? .cli,
+                sessionReported: latest?.sessionReported ?? true,
+                sources: Set(groups[key]?.map(\.source) ?? [.cli]))
         }.sorted { $0.lastObserved == $1.lastObserved ? $0.id < $1.id : $0.lastObserved > $1.lastObserved }
     }
 
@@ -523,6 +571,8 @@ public struct TokenLedger {
                               calls: values.count, since: first, lastObserved: last,
                               cacheWrite: values.reduce(0) { $0 + $1.usage.cacheWrite },
                               cacheWriteReportedCalls: Int64(values.filter { $0.usage.cacheWriteReported == true }.count),
-                              cacheWriteUnreportedCalls: Int64(values.filter { $0.usage.cacheWriteReported == false }.count))
+                              cacheWriteUnreportedCalls: Int64(values.filter { $0.usage.cacheWriteReported == false }.count),
+                              estimatedCostMicros: values.reduce(0) { $0 + ($1.usage.estimatedCostMicros ?? 0) },
+                              costReportedCalls: Int64(values.filter { $0.usage.estimatedCostMicros != nil }.count))
     }
 }

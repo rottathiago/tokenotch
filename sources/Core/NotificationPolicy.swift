@@ -1,7 +1,7 @@
 import Foundation
 
 public enum NoticeCategory: String, Codable, CaseIterable {
-    case stopped, failed, usage, incident, recovery, context, attention
+    case stopped, failed, usage, incident, recovery, context, attention, update
 }
 
 public struct NoticeTarget: Codable, Equatable {

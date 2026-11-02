@@ -131,6 +131,73 @@ enum HistoryLifecycleChecks {
         resumed.stop()
         try await sourceFiltering()
         try await confirmedImport()
+        try await providerRecording()
+    }
+
+    static func providerRecording() async throws {
+        let root = HistoryChecks.temporaryRoot()
+        let domain = "tokenotch-provider-recording-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: domain)!
+        defer {
+            defaults.removePersistentDomain(forName: domain)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let controller = HistoryController(defaults: defaults, root: root)
+        controller.start(available: true)
+        controller.setEnabled(true)
+        try await wait { controller.recording || controller.error != nil }
+        try HistoryChecks.require(controller.error == nil, "Copilot fixture failed to start")
+        let first = Date()
+        let interval = HistoryCalendar(zone: TimeZone(identifier: controller.zone)!)
+            .interval(.today, selected: first, now: first)
+        controller.observe(HistoryChecks.usage("before-claude", at: first))
+        let before = try await controller.read(interval, model: nil)
+        let copilotBegan = before?.recordingCoverage?.starts[.cli]
+        controller.setAvailableSources([.cli, .claudeCLI])
+        controller.setEnabled(true, provider: .claudeCode)
+        controller.observe(HistoryChecks.usage("during-claude-enable", at: first))
+        try await wait { controller.recordingProviders == [.copilot, .claudeCode] || controller.error != nil }
+        func claude(_ id: String, at date: Date) -> ActivityEvent {
+            ActivityEvent(source: .claudeCLI, session: ActivityEvent.digest("claude-test-session"),
+                kind: .usage, timestamp: date,
+                tokens: TokenUsage(callID: ActivityEvent.digest(id), input: 5, output: 1,
+                                   cacheInputReported: false, cacheWriteReported: false),
+                metricSource: .claudeCLI, metricSessionReported: true)
+        }
+        controller.observe(claude("before-consent", at: first))
+        controller.observe(claude("after-consent", at: Date()))
+        let consented = try await controller.read(interval, model: nil, provider: .claudeCode)
+        let retained = try await controller.read(interval, model: nil)
+        try HistoryChecks.require(consented?.totals.calls == 1 && retained?.totals.calls == 2 &&
+                                 retained?.recordingCoverage?.starts[.cli] == copilotBegan &&
+                                 consented?.recordingCoverage?.starts[.claudeCLI].map { $0 > first } == true,
+                                 "Connecting Claude reset Copilot's window or admitted pre-consent usage")
+        let pendingBeforePause = Date()
+        controller.setEnabled(false, provider: .claudeCode)
+        controller.observe(HistoryChecks.usage("during-claude-pause", at: pendingBeforePause))
+        controller.observe(claude("paused", at: Date()))
+        let paused = try await controller.read(interval, model: nil, provider: .claudeCode)
+        let uninterrupted = try await controller.read(interval, model: nil)
+        try HistoryChecks.require(controller.recording && paused?.totals.calls == 1 &&
+                                 uninterrupted?.totals.calls == 3 &&
+                                 uninterrupted?.recordingCoverage?.starts[.cli] == copilotBegan &&
+                                 uninterrupted?.days.allSatisfy { !$0.gap } == true,
+                                 "Claude pause dropped a queued Copilot call, cleared receipts, or manufactured a Copilot gap")
+        controller.setEnabled(true, provider: .claudeCode)
+        try await wait { controller.recordingProviders.contains(.claudeCode) }
+        controller.observe(claude("paused-backfill", at: pendingBeforePause))
+        controller.observe(claude("resumed", at: Date()))
+        let resumed = try await controller.read(interval, model: nil, provider: .claudeCode)
+        try HistoryChecks.require(resumed?.totals.calls == 2 && resumed?.days.first?.gap == true,
+                                 "Resume backfilled paused calls or concealed the Claude interruption")
+        controller.observe(HistoryChecks.usage("before-source-removal", at: pendingBeforePause))
+        controller.setAvailableSources([.cli])
+        controller.observe(HistoryChecks.usage("during-source-removal", at: pendingBeforePause))
+        let afterRemoval = try await controller.read(interval, model: nil)
+        try HistoryChecks.require(afterRemoval?.totals.calls == 5 && controller.recording &&
+                                 afterRemoval?.days.allSatisfy { !$0.gap } == true,
+                                 "Removing Claude interrupted Copilot's admission or coverage")
+        controller.stop()
     }
 
     static func sourceFiltering() async throws {

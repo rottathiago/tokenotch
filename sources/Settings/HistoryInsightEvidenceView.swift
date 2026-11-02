@@ -55,7 +55,8 @@ struct HistoryInsightEvidenceView: View {
                             let current = comparison.current.models.first { $0.id == key }
                             let previous = comparison.previous.models.first { $0.id == key }
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(current?.title ?? previous?.title ?? "Model unavailable").fontWeight(.medium)
+                                Text((current ?? previous).map { "\($0.provider.title): \($0.title)" } ?? "Model unavailable")
+                                    .fontWeight(.medium)
                                 Text("This week: \(modelValue(current?.tokens, total: comparison.current.totals.calls))")
                                 Text("Previous: \(modelValue(previous?.tokens, total: comparison.previous.totals.calls))")
                             }

@@ -15,6 +15,11 @@ public struct HistoryTotals: Equatable, Sendable {
     public var firstTokenSamples: Int64 = 0
     public var durationSum: Double = 0
     public var durationSamples: Int64 = 0
+    public var estimatedCostMicros: Int64 = 0
+    public var costReportedCalls: Int64 = 0
+    public var costCoverage: EstimatedCostCoverage {
+        EstimatedCostCoverage(micros: estimatedCostMicros, calls: calls, reportedCalls: costReportedCalls)
+    }
     public var total: Int64 { input + output + cacheInput + cacheWrite }
     public var cacheCoverage: CacheInputCoverage {
         CacheInputCoverage(tokens: cacheInput, calls: calls,
@@ -34,7 +39,8 @@ public struct HistoryTotals: Equatable, Sendable {
         guard cacheCoverage.isValid, other.cacheCoverage.isValid,
               breakdown.write.isValid, other.breakdown.write.isValid,
               (0...calls).contains(unverifiedCalls),
-              (0...other.calls).contains(other.unverifiedCalls) else { throw HistoryError.invalid }
+              (0...other.calls).contains(other.unverifiedCalls),
+              costCoverage.isValid, other.costCoverage.isValid else { throw HistoryError.invalid }
         func sum(_ left: Int64, _ right: Int64) throws -> Int64 {
             let (value, overflow) = left.addingReportingOverflow(right)
             guard left >= 0, right >= 0, !overflow else { throw HistoryError.invalid }
@@ -51,6 +57,8 @@ public struct HistoryTotals: Equatable, Sendable {
         calls = try sum(calls, other.calls)
         firstTokenSamples = try sum(firstTokenSamples, other.firstTokenSamples)
         durationSamples = try sum(durationSamples, other.durationSamples)
+        estimatedCostMicros = try sum(estimatedCostMicros, other.estimatedCostMicros)
+        costReportedCalls = try sum(costReportedCalls, other.costReportedCalls)
         _ = try sum(try sum(try sum(input, output), cacheInput), cacheWrite)
         firstTokenSum += other.firstTokenSum; durationSum += other.durationSum
         guard firstTokenSum.isFinite, durationSum.isFinite, firstTokenSum >= 0, durationSum >= 0 else {
@@ -75,12 +83,28 @@ public struct HistoryDay: Identifiable, Sendable {
 }
 
 public struct HistoryModel: Identifiable, Sendable {
-    public let id: String
+    public let model: String
+    public let provider: UsageProvider
+    public var id: String { provider == .copilot ? model : "\(provider.rawValue):\(model)" }
     public let tokens: HistoryTotals
     public var title: String {
-        id.isEmpty ? "Model unavailable" : id == "*" ? "Other models (detail limit)" : id
+        model.isEmpty ? "Model unavailable" : model == "*" ? "Other models (detail limit)" : model
     }
-    public init(id: String, tokens: HistoryTotals) { self.id = id; self.tokens = tokens }
+    public init(id: String, tokens: HistoryTotals, provider: UsageProvider = .copilot) {
+        model = id; self.tokens = tokens; self.provider = provider
+    }
+}
+
+public struct HistoryRecordingCoverage: Sendable {
+    public let sources: Set<UsageSource>
+    public let starts: [UsageSource: Date]
+    public init(sources: Set<UsageSource>, starts: [UsageSource: Date]) {
+        self.sources = sources; self.starts = starts
+    }
+    public var comparisonBegan: Date? {
+        guard !sources.isEmpty, sources.allSatisfy({ starts[$0] != nil }) else { return nil }
+        return sources.compactMap { starts[$0] }.max()
+    }
 }
 
 public struct HistorySnapshot: Sendable {
@@ -91,6 +115,18 @@ public struct HistorySnapshot: Sendable {
     public let bytes: Int64
     public let totals: HistoryTotals
     public var hasImportedData: Bool = false
+    public var recordingCoverage: HistoryRecordingCoverage? = nil
+    public init(days: [HistoryDay], models: [HistoryModel], zone: String, began: Date, bytes: Int64,
+                totals: HistoryTotals, hasImportedData: Bool = false,
+                recordingCoverage: HistoryRecordingCoverage? = nil) {
+        self.days = days; self.models = models; self.zone = zone; self.began = began
+        self.bytes = bytes; self.totals = totals; self.hasImportedData = hasImportedData
+        self.recordingCoverage = recordingCoverage
+    }
+    public var comparisonBegan: Date? {
+        if let recordingCoverage { return recordingCoverage.comparisonBegan }
+        return began
+    }
 }
 
 public struct NotchHistorySummary: Sendable {
@@ -148,7 +184,10 @@ public struct NotchHistorySummary: Sendable {
         if recent.unverifiedCalls > 0 || previous.unverifiedCalls > 0 {
             change = nil
             comparisonNote = "Weekly percentage unavailable for legacy samples."
-        } else if recentDays < 7 || previousDays < 7 || snapshot.began > previousStart {
+        } else if snapshot.comparisonBegan == nil {
+            change = nil
+            comparisonNote = "Recording baseline unavailable for some sources."
+        } else if recentDays < 7 || previousDays < 7 || snapshot.comparisonBegan.map({ $0 > previousStart }) == true {
             change = nil
             comparisonNote = "Not enough history for a weekly percentage."
         } else if hasGap {
@@ -236,5 +275,6 @@ public enum HistoryError: String, Error, LocalizedError {
     case schema = "This history database needs a newer Tokenotch version. It was left unchanged."
     case invalid = "Usage history contains unsupported data. It was not reset."
     case queueFull = "History recording could not keep up. Recording is paused and this period is partial."
+    case capacity = "Claude call identity storage reached its limit. Recording is paused; saved history was not reset."
     public var errorDescription: String? { rawValue }
 }

@@ -569,7 +569,7 @@ enum NotchChecks {
             .frame(width: NotchLayout.cardWidth - 2 * NotchLayout.cardPadding)
         let height = NSHostingView(rootView: content).fittingSize.height + NotchLayout.cardChrome()
         try require(height <= 640, "Four-section card with chart exceeds 640pt: \(height)")
-        for source in UsageSource.allCases {
+        for source in UsageSource.copilotCases {
             data.metricSource = source
             let filtered = CopilotSummaryContent(presentation: data, openClient: { _ in }, openHistory: {})
                 .frame(width: NotchLayout.cardWidth - 2 * NotchLayout.cardPadding)
@@ -727,6 +727,8 @@ enum NotchChecks {
         }
         legacy.removeValue(forKey: "autoHideNotch")
         legacy.removeValue(forKey: "timeFormat")
+        legacy.removeValue(forKey: "showCopilotBadge")
+        legacy.removeValue(forKey: "showClaudeNotch")
         let migrated = try JSONDecoder().decode(TokenotchOptions.self, from: JSONSerialization.data(withJSONObject: legacy))
         try require(migrated.autoHideNotch && !migrated.showNotch && migrated.allDisplays,
                     "Old preferences enable collapse without re-enabling a hidden notch")
@@ -735,6 +737,18 @@ enum NotchChecks {
                     && migrated.healthEnabled && migrated.notifications.sound,
                     "Adding auto-hide must preserve all existing preferences")
         try require(migrated.timeFormat == .twentyFourHour, "Old preferences must migrate to the existing hour format")
+        try require(migrated.showCopilotBadge && migrated.showClaudeNotch,
+                    "Older preferences must keep both providers visible by default")
+        for copilot in [false, true] {
+            for claude in [false, true] {
+                options.showCopilotBadge = copilot
+                options.showClaudeNotch = claude
+                let restored = try JSONDecoder().decode(TokenotchOptions.self, from: JSONEncoder().encode(options))
+                try require(restored.showCopilotBadge == copilot && restored.showClaudeNotch == claude
+                    && !restored.showNotch && restored.offsets == options.offsets,
+                    "Every provider visibility combination must persist independently of global notch settings")
+            }
+        }
         options.autoHideNotch = false
         let saved = try JSONDecoder().decode(TokenotchOptions.self, from: JSONEncoder().encode(options))
         try require(!saved.autoHideNotch, "An explicit always-visible choice survives a preferences round trip")
@@ -1213,7 +1227,8 @@ enum NotchChecks {
                                             size: CGSize(width: 820, height: 900))
         try save(timelineImage, name: "timeline-consent", directory: directory)
         try require(!model.timeline.enabled, "Timeline navigation opted into recording")
-        try save(try hostedImage(AboutSettingsView(updates: model.updates), size: CGSize(width: 820, height: 1000)),
+        try save(try hostedImage(AboutSettingsView(updates: model.updates, setAutomaticChecks: model.setAutomaticUpdateChecks),
+                                size: CGSize(width: 820, height: 1000)),
                  name: "settings-about", directory: directory)
         try save(try hostedImage(SettingsSidebar(model: model), size: CGSize(width: 200, height: 520)),
                  name: "settings-sidebar", directory: directory)

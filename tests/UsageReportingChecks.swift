@@ -104,7 +104,7 @@ enum UsageReportingChecks {
         try NotchChecks.waitUntil { !history.notchLoading }
         try NotchChecks.require(history.notchUsage?.totals.calls == 132, "Week fixture lost the previous reporting day")
         try requireCounts(view.todayUsage, counts: expected, calls: 131)
-        for source in UsageSource.allCases {
+        for source in UsageSource.copilotCases {
             history.selectedSource = source
             try NotchChecks.require(view.todayUsage.usageSource == .loading && view.todayUsage.allModelRows.isEmpty,
                                    "Source change exposed stale Today models or live fallback")
@@ -163,6 +163,52 @@ enum UsageReportingChecks {
         try NotchChecks.require(view.todayUsage.usageTotals == nil, "Deletion left stale Settings totals")
         try NotchChecks.waitUntil { history.recording && !history.notchLoading }
         try requireCounts(view.todayUsage, counts: [0, 0, 0, 0], calls: 0)
+    }
+
+    static func providerArchiveIsolation() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("tokenotch-provider-report-\(UUID().uuidString)")
+        let domain = "tokenotch-provider-report-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: domain)!
+        defer {
+            defaults.removePersistentDomain(forName: domain)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let now = Date()
+        let copilot = event("copilot-only-card", at: now, source: .cli)
+        let claude = ActivityEvent(source: .claudeCLI, session: ActivityEvent.digest("claudeCode:synthetic-session"),
+            kind: .usage, timestamp: now,
+            tokens: TokenUsage(callID: ActivityEvent.digest("claudeCode:synthetic-request"), input: 999, output: 99,
+                               cacheInputReported: false, model: "report-model", cacheWriteReported: false,
+                               estimatedCostMicros: 123456),
+            metricSource: .claudeCLI, metricSessionReported: true)
+        var historyStore: UsageHistoryStore? = try UsageHistoryStore(root: root, now: now)
+        try historyStore!.record([copilot, claude], now: now)
+        historyStore = nil
+        var timelineStore: SessionTimelineStore? = try SessionTimelineStore(root: root, now: now)
+        try timelineStore!.record([copilot, claude], retention: .seven, now: now)
+        timelineStore = nil
+        let model = TokenotchModel(defaults: defaults, root: root)
+        for source in [UsageSource.claudeCLI, .claudeDesktop] {
+            let readiness = model.signalReadiness(source: source)
+            try NotchChecks.require(readiness.metrics.delivery(now: now) == (source == .claudeCLI ? .off : .unsupported) &&
+                                   readiness.lifecycle.delivery(now: now) == .unverified,
+                                   "Synthetic archive or migrated consent certified real Claude delivery")
+        }
+        try NotchChecks.require(model.signalReadiness(source: .vscodeCopilot).lifecycle.delivery(now: now) == .unsupported,
+                               "Agent Host metrics invented Local lifecycle parity")
+        model.history.start(available: false)
+        model.timeline.start(clients: [])
+        defer { model.history.stop(); model.timeline.stop() }
+        try NotchChecks.waitUntil { !model.history.notchLoading && model.timeline.archive != nil }
+        try NotchChecks.require(model.history.todayUsage?.totals.calls == 1 &&
+                               model.history.todayUsage?.totals.input == 100 &&
+                               model.history.todayUsage?.models.allSatisfy { $0.provider == .copilot } == true &&
+                               model.timeline.archive?.eventCount == 1 &&
+                               model.timeline.sessions.allSatisfy { $0.provider == .copilot },
+                               "The foundation app exposed Claude archive totals under Copilot-only presentation")
+        try NotchChecks.require(!ProviderRecordingConsent.enabled(.usageHistory, provider: .claudeCode, in: defaults) &&
+                               !ProviderRecordingConsent.enabled(.sessionTimeline, provider: .claudeCode, in: defaults),
+                               "Reading an archive granted Claude recording consent")
     }
 
     static func liveOnly() throws {

@@ -34,20 +34,24 @@ private final class TimelineRecordingConfirmation: ObservableObject {
 
 struct TimelineRecordingControls: View {
     @ObservedObject var timeline: SessionTimelineController
+    var provider: UsageProvider = .copilot
     @StateObject private var confirmation = TimelineRecordingConfirmation()
 
     var body: some View {
-        Toggle(isOn: Binding(get: { timeline.enabled }, set: { value in
-            if value { confirmation.consent = true } else { timeline.setEnabled(false) }
+        Toggle(isOn: Binding(get: { timeline.isEnabled(provider) }, set: { value in
+            if value { confirmation.consent = true } else { timeline.setEnabled(false, provider: provider) }
         })) {
-            Text("Record session timelines")
-            Text(timeline.error == nil ? timeline.displayStatus : "Unavailable")
+            Text("Record \(provider.title) session timelines")
+            Text(timeline.error ?? (timeline.recordingProviders.contains(provider) ? "Recording observations" :
+                timeline.isEnabled(provider) ? "Waiting for a connected client" : "Off; saved timelines are retained"))
         }
         .confirmationDialog("Save session timelines on this Mac?", isPresented: $confirmation.consent, titleVisibility: .visible) {
-            Button("Turn On Timelines") { timeline.setEnabled(true) }
+            Button("Turn On Timelines") { timeline.setEnabled(true, provider: provider) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Tokenotch records model calls, context, response times and lifecycle events for new sessions, kept for \(timeline.retention.title). No prompts, responses, code or file paths are saved. Earlier sessions can't be added.")
+            Text(provider == .claudeCode
+                 ? "Save only reported Claude model calls, tokens, estimated cost and timing for \(timeline.retention.title). Lifecycle, context and attention remain unavailable. No transcripts, prompts or file paths. Other providers' consent is unchanged."
+                 : "Save Copilot model calls, context, timing and lifecycle events for \(timeline.retention.title). No prompts, responses, code or file paths. Earlier sessions can't be added.")
         }
         if let error = timeline.error {
             LabeledContent {
@@ -63,12 +67,27 @@ struct TimelineRecordingControls: View {
 struct SessionTimelineView: View {
     @ObservedObject var timeline: SessionTimelineController
     @ObservedObject var attention: SessionAttentionController
+    var history: HistoryController? = nil
     @StateObject private var state = SessionsTabState()
 
     var body: some View {
         Form {
             Section {
-                TimelineRecordingControls(timeline: timeline)
+                Picker("Provider", selection: $timeline.selectedProvider) {
+                    Text("All providers").tag(UsageProvider?.none)
+                    ForEach(UsageProvider.allCases) { Text($0.title).tag(Optional($0)) }
+                }
+                Picker("Client", selection: $timeline.selectedClient) {
+                    Text("All clients").tag(Client?.none)
+                    ForEach(Client.activeCases.filter { timeline.selectedProvider == nil || $0.provider == timeline.selectedProvider }) {
+                        Text($0.shortTitle).tag(Optional($0))
+                    }
+                }
+            }
+            Section {
+                ForEach(UsageProvider.allCases) { provider in
+                    TimelineRecordingControls(timeline: timeline, provider: provider)
+                }
                 retentionPicker
                 LabeledContent {
                     Button("Browse…") { state.browsing = true }
@@ -81,7 +100,7 @@ struct SessionTimelineView: View {
                     Button("Delete…", role: .destructive) { state.deletion = true }
                         .disabled(!timeline.hasSavedTimelines && timeline.error == nil)
                 } label: {
-                    Text("Delete all timelines")
+                    Text(timeline.selectedProvider.map { "Delete \($0.title) timelines" } ?? "Delete all timelines")
                     Text("Usage history and live data aren't affected.")
                 }
             } header: {
@@ -91,7 +110,8 @@ struct SessionTimelineView: View {
             }
 
             Section {
-                SessionNoticeControls(attention: attention)
+                if timeline.selectedProvider != .claudeCode { SessionNoticeControls(attention: attention) }
+                else { Text("Claude lifecycle and session notices are not verified and remain unavailable.") }
             } header: {
                 Text("Session notices")
             }
@@ -107,12 +127,23 @@ struct SessionTimelineView: View {
         } message: {
             Text("Events older than \(state.pendingRetention?.title ?? timeline.retention.title) will be deleted now. This can't be undone.")
         }
-        .confirmationDialog("Delete all saved session timelines?", isPresented: $state.deletion, titleVisibility: .visible) {
-            Button("Delete Session Timelines", role: .destructive) { timeline.deleteAll() }
+        .confirmationDialog(timeline.selectedProvider.map { "Delete \($0.title) session timelines?" } ?? "Delete all saved session timelines?",
+                            isPresented: $state.deletion, titleVisibility: .visible) {
+            Button("Delete Session Timelines", role: .destructive) {
+                if let provider = timeline.selectedProvider { timeline.delete(provider: provider) }
+                else { timeline.deleteAll() }
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This can't be undone. If recording is on, it continues with an empty timeline. Usage history and live data aren't affected.")
+            Text("Deletes the selected provider's saved timeline events and replay receipts, or all providers when All providers is selected. Recording consent, other providers, usage/cost history and live data are unchanged.")
         }
+        .onAppear {
+            if let history {
+                timeline.selectedProvider = history.selectedProvider
+                timeline.selectedClient = history.selectedSource?.client
+            }
+        }
+        .onChange(of: timeline.selectedProvider) { history?.selectedProvider = timeline.selectedProvider }
         .sheet(isPresented: Binding(get: { state.browsing || timeline.selectedSession != nil },
                                    set: { if !$0 { state.browsing = false; timeline.selectedSession = nil } })) {
             SavedTimelinesSheet(timeline: timeline, browsing: $state.browsing)
@@ -395,6 +426,12 @@ private struct TimelineEventsView: View {
             lines.append(parts.joined(separator: ", "))
             if event.firstTokenMs != nil || event.durationMs != nil {
                 lines.append("First token \(MetricFormat.latency(event.firstTokenMs)), total \(MetricFormat.latency(event.durationMs))")
+            }
+            if event.provider == .claudeCode {
+                lines.append(event.estimatedCostMicros.map {
+                    "Estimated cost " + (Decimal($0) / 1_000_000).formatted(.currency(code: "USD").precision(.fractionLength(2...6)))
+                } ?? "Estimated cost not reported")
+                lines.append("\(event.source.title); lifecycle unavailable")
             }
         }
         if event.kind == .context, let count = event.contextTokens, let limit = event.contextLimit {

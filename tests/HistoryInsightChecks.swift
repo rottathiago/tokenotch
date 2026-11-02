@@ -12,6 +12,7 @@ enum HistoryInsightChecks {
         let calendar = HistoryCalendar(zone: TimeZone(secondsFromGMT: 0)!)
         let periods = HistoryInsightComparison.periods(now: now, calendar: calendar)
         let store = try UsageHistoryStore(root: root, zone: calendar.calendar.timeZone, now: periods.1.start)
+        try store.heartbeat(from: periods.1.start, to: periods.1.start, active: true)
         for (period, current) in [(periods.1, false), (periods.0, true)] {
             var events: [ActivityEvent] = []
             for index in 0..<calls {
@@ -92,6 +93,7 @@ enum HistoryInsightChecks {
         }
         let pair = HistoryInsightComparison.periods(now: now, calendar: clock)
         let store = try UsageHistoryStore(root: root, zone: clock.calendar.timeZone, now: pair.1.start.addingTimeInterval(1))
+        try store.heartbeat(from: pair.1.start.addingTimeInterval(1), to: pair.1.start.addingTimeInterval(1), active: true)
         for day in 0..<14 {
             let date = clock.addingDays(day, to: pair.1.start).addingTimeInterval(3600)
             let count = day == 13 ? 40 : 3

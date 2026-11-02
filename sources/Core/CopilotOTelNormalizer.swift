@@ -6,6 +6,10 @@ public struct TelemetryBatch: Sendable {
     public var filtered = 0
     public var rejected = 0
     public var unlinked = 0
+    public var unidentified = 0
+    public var unattributed = 0
+    public var claudeRejections: [ClaudeCodeRejectionStage: Int] = [:]
+    public var claudeEventMarkers: [ClaudeCodeEventMarker: Int] = [:]
     public init() {}
 }
 
@@ -23,7 +27,8 @@ public enum CopilotOTelNormalizer {
 
     public static func decode(_ data: Data, source: UsageSource, now: Date = Date(),
                               importing: Bool = false) throws -> TelemetryBatch {
-        guard source != .cli, data.count <= bodyLimit else { throw TelemetryError.capacity }
+        guard source.provider == .copilot, source != .cli else { throw TelemetryError.unsupported }
+        guard data.count <= bodyLimit else { throw TelemetryError.capacity }
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let resources = root["resourceSpans"] as? [[String: Any]],
               resources.count <= spanLimit else { throw TelemetryError.unsupported }

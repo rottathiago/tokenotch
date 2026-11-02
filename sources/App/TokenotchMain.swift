@@ -58,6 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] _, _, _ in self?.updateMenu() }
             .store(in: &cancellables)
+        model.updates.$available
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateMenu() }
+            .store(in: &cancellables)
         NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
             .receive(on: RunLoop.main)
             .sink { [weak model] _ in model?.resumeAfterWake() }
@@ -85,7 +89,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add("Snooze for 30 minutes", action: #selector(snooze), to: menu)
         add("Resume notifications", action: #selector(resume), to: menu)
         add("Settings…", action: #selector(showSettings), to: menu, key: ",")
-        add("Check for Updates…", action: #selector(checkForUpdates), to: menu)
+        if let release = model.updates.available {
+            add("Update available: \(release.tag)…", action: #selector(showUpdates), to: menu)
+        } else {
+            add("Check for Updates…", action: #selector(checkForUpdates), to: menu)
+        }
         add("Quit Tokenotch", action: #selector(quit), to: menu, key: "q")
         status?.menu = menu
     }
@@ -103,9 +111,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func resume() { model?.options.notifications.snoozedUntil = nil }
     @objc private func quit() { NSApp.terminate(nil) }
     @objc private func checkForUpdates() {
+        showUpdates()
+        model?.updates.check()
+    }
+    @objc private func showUpdates() {
         model?.settingsTab = .about
         showSettings()
-        model?.updates.check()
     }
 
     @objc private func showSettings() {

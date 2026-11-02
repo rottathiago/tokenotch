@@ -8,12 +8,12 @@ private final class HistoryConfirmationState: ObservableObject {
 }
 
 extension View {
-    func historyConsentDialog(isPresented: Binding<Bool>, history: HistoryController) -> some View {
-        confirmationDialog("Save usage history on this Mac?", isPresented: isPresented, titleVisibility: .visible) {
-            Button("Turn On History") { history.setEnabled(true) }
+    func historyConsentDialog(isPresented: Binding<Bool>, history: HistoryController, provider: UsageProvider = .copilot) -> some View {
+        confirmationDialog("Save \(provider.title) usage history on this Mac?", isPresented: isPresented, titleVisibility: .visible) {
+            Button("Turn On History") { history.setEnabled(true, provider: provider) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Tokenotch saves daily token and model totals from connected clients until you delete them, plus hourly detail for the latest seven days. No prompts, code or project names are saved. The reporting time zone is fixed when you first turn this on.")
+            Text("Tokenotch saves \(provider.title) daily token, model and reported estimated cost totals until you delete them, plus hourly detail for seven days. No prompts, code or project names. Other providers' recording choices are unchanged.")
         }
     }
 }
@@ -22,16 +22,18 @@ extension View {
 struct HistoryControls: View {
     @ObservedObject var history: HistoryController
     var showsManagement = true
+    var provider: UsageProvider = .copilot
     @StateObject private var state = HistoryConfirmationState()
 
     var body: some View {
-        Toggle(isOn: Binding(get: { history.enabled }, set: { value in
-            if value { state.consent = true } else { history.setEnabled(false) }
+        Toggle(isOn: Binding(get: { history.isEnabled(provider) }, set: { value in
+            if value { state.consent = true } else { history.setEnabled(false, provider: provider) }
         })) {
             Text("Save usage history")
-            Text(history.status)
+            Text(history.error ?? (history.recordingProviders.contains(provider) ? "Recording observed usage" :
+                history.isEnabled(provider) ? "Waiting for a connected source" : "Paused; saved data is retained"))
         }
-        .historyConsentDialog(isPresented: $state.consent, history: history)
+        .historyConsentDialog(isPresented: $state.consent, history: history, provider: provider)
         if let error = history.error {
             LabeledContent {
                 Button("Retry") { history.retry() }
@@ -44,19 +46,22 @@ struct HistoryControls: View {
                 Button("Delete…", role: .destructive) { state.deletion = true }
             } label: {
                 Text("Delete usage history")
-                Text("Removes all saved daily and hourly totals.")
+                Text("Removes \(provider.title) daily, hourly and estimated cost totals.")
             }
-            .confirmationDialog("Delete all saved usage history?", isPresented: $state.deletion, titleVisibility: .visible) {
-                Button("Delete Usage History", role: .destructive) { history.deleteAll() }
+            .confirmationDialog("Delete \(provider.title) usage history?", isPresented: $state.deletion, titleVisibility: .visible) {
+                Button("Delete Usage History", role: .destructive) { history.delete(provider: provider) }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This can't be undone. If recording is on, it continues with empty history. Session timelines, live data and your GitHub sign-in aren't affected.")
+                Text("This can't be undone. Includes saved estimated cost aggregates and this provider's replay receipts. Recording consent is unchanged. Other providers, saved session timelines and live data aren't affected.")
             }
         }
     }
 }
 
 private final class HistorySelection: ObservableObject {
+    @Published var modelProvider: UsageProvider?
+    @Published var providerSnapshots: [UsageProvider: HistorySnapshot] = [:]
+    @Published var modelComparison: HistoryInsightComparison?
     @Published var range: HistoryRange = .days30
     @Published var selected = Date()
     @Published var comparison = Calendar.current.date(byAdding: .month, value: -1, to: Date())!
@@ -110,7 +115,7 @@ struct UsageHistoryView: View {
         calendar.completedComparison(interval, prior, now: Date(), monthly: monthly)
     }
     private var queryID: String {
-        "\(history.revision)|\(history.zone)|\(state.range.rawValue)|\(state.selected)|\(state.comparison)|\(state.model ?? "<all>")|\(String(describing: state.anchor))|\(history.selectedSource?.rawValue ?? "all")"
+        "\(history.revision)|\(history.zone)|\(state.range.rawValue)|\(state.selected)|\(state.comparison)|\(state.model ?? "<all>")|\(String(describing: state.anchor))|\(history.selectedProvider?.rawValue ?? "all")|\(history.selectedSource?.rawValue ?? "all")"
     }
 
     var body: some View {
@@ -128,9 +133,17 @@ struct UsageHistoryView: View {
             if let queryError = state.queryError {
                 Section { Label(queryError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(SettingsStyle.caution) }
             } else if let snapshot = state.snapshot {
-                if !history.enabled { pausedNotice }
+                if !history.selectionEnabled { pausedNotice }
                 summary(snapshot)
-                if multiDay { dailyChart(snapshot) }
+                if multiDay {
+                    if history.selectedProvider == nil && history.selectedSource == nil {
+                        ForEach(UsageProvider.allCases) { provider in
+                            if let scoped = state.providerSnapshots[provider] {
+                                dailyChart(scoped, provider: provider)
+                            }
+                        }
+                    } else { dailyChart(snapshot) }
+                }
                 models(snapshot)
                 if let current = state.comparisonCurrent, let baseline = state.baseline {
                     comparison(current, baseline)
@@ -143,17 +156,24 @@ struct UsageHistoryView: View {
             } else if history.error == nil {
                 Section { emptyState }
             }
-            TelemetryImportView(history: history)
+            if history.selectedProvider != .claudeCode && history.selectedSource?.provider != .claudeCode {
+                TelemetryImportView(history: history)
+            }
             if let snapshot = state.snapshot, state.queryError == nil {
                 Section {} footer: {
-                    SettingsFootnote("Times use \(snapshot.zone). Recorded since \(snapshot.began.formatted(date: .abbreviated, time: .omitted)), \(ByteCountFormatter.string(fromByteCount: snapshot.bytes, countStyle: .file)) on disk. Estimates from this Mac, not billing data.")
+                    SettingsFootnote("Times use \(snapshot.zone). \(snapshot.comparisonBegan.map { "Comparable recording since \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "Recording baseline unavailable"), \(ByteCountFormatter.string(fromByteCount: snapshot.bytes, countStyle: .file)) on disk. Estimates from this Mac, not billing data.")
                 }
             }
         }
         .formStyle(.grouped)
         .environment(\.timeZone, calendar.calendar.timeZone)
-        .historyConsentDialog(isPresented: $state.consent, history: history)
+        .historyConsentDialog(isPresented: $state.consent, history: history, provider: history.selectedSource?.provider ?? history.selectedProvider ?? .copilot)
         .task(id: queryID) { await load() }
+        .onChange(of: history.selectedProvider) {
+            if state.modelProvider != history.selectedProvider { state.model = nil; state.modelProvider = nil }
+            clearSnapshots()
+        }
+        .onChange(of: history.selectedSource) { clearSnapshots() }
         .onChange(of: history.navigation?.id, initial: true) {
             guard let request = history.navigation else { return }
             state.anchor = request.anchor
@@ -193,14 +213,18 @@ struct UsageHistoryView: View {
                     ForEach(HistoryRange.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .fixedSize()
-                UsageSourcePicker(selection: $history.selectedSource).fixedSize()
+                UsageProviderPicker(history: history).fixedSize()
+                UsageSourcePicker(selection: $history.selectedSource, provider: history.selectedProvider).fixedSize()
                 Menu {
-                    Picker("Model", selection: $state.model) {
-                        Text("All models").tag(String?.none)
-                        Divider()
-                        ForEach(modelOptions) { Text($0.title).tag(Optional($0.id)) }
+                    Button("All models") { state.model = nil; state.modelProvider = nil }
+                    Divider()
+                    ForEach(modelOptions) { item in
+                        Button("\(item.provider.title): \(item.title)") {
+                            state.modelProvider = item.provider
+                            history.selectedProvider = item.provider
+                            state.model = item.model
+                        }
                     }
-                    .pickerStyle(.inline)
                 } label: {
                     Text(state.model.map { HistoryModel(id: $0, tokens: HistoryTotals()).title } ?? "All models")
                         .lineLimit(1).truncationMode(.middle)
@@ -224,9 +248,9 @@ struct UsageHistoryView: View {
         Group {
             if history.error != nil {
                 StatusBadge(text: "Unavailable", symbol: "exclamationmark.triangle.fill", tone: .caution)
-            } else if !history.enabled {
+            } else if !history.selectionEnabled {
                 StatusBadge(text: "Off", tone: .neutral)
-            } else if history.recording {
+            } else if history.selectionRecording {
                 StatusBadge(text: "Recording", symbol: "record.circle", tone: .good)
             } else {
                 StatusBadge(text: "Waiting for a client", tone: .neutral)
@@ -284,6 +308,11 @@ struct UsageHistoryView: View {
                                                 cacheRead: totals.cacheInput, cacheWrite: totals.cacheWrite),
                             help: totals.breakdown.details)
                     .padding(.vertical, 2)
+                if (history.selectedSource?.provider ?? history.selectedProvider) == .claudeCode {
+                    EstimatedCostRow(coverage: totals.costCoverage)
+                } else if history.selectedProvider == nil, let claude = state.providerSnapshots[.claudeCode] {
+                    EstimatedCostRow(coverage: claude.totals.costCoverage)
+                }
             }
         } header: {
             Text(periodTitle)
@@ -317,7 +346,7 @@ struct UsageHistoryView: View {
         }
     }
 
-    private func dailyChart(_ snapshot: HistorySnapshot) -> some View {
+    private func dailyChart(_ snapshot: HistorySnapshot, provider: UsageProvider? = nil) -> some View {
         let data = points(snapshot)
         let hovered = state.hoveredDay.flatMap { date in snapshot.days.first { $0.day == calendar.key(date) } }
         let peak = snapshot.days.map { day in
@@ -326,6 +355,7 @@ struct UsageHistoryView: View {
                 + (day.tokens.breakdown.write.hasValue ? day.tokens.cacheWrite : 0)
         }.max() ?? 0
         return Section {
+            if let provider { Text(provider.title).font(.headline) }
             if data.isEmpty {
                 Text("Nothing to chart for this period.").foregroundStyle(.secondary).padding(.vertical, 6)
             } else {
@@ -397,7 +427,7 @@ struct UsageHistoryView: View {
     // MARK: Models
 
     private func models(_ snapshot: HistorySnapshot) -> some View {
-        let rows = snapshot.models.filter { (state.model == nil || $0.id == state.model) && $0.tokens.calls > 0 }
+        let rows = snapshot.models.filter { (state.model == nil || $0.model == state.model) && $0.tokens.calls > 0 }
             .sorted { $0.tokens.total > $1.tokens.total }
         let total = max(snapshot.totals.total, 1)
         return Group {
@@ -414,13 +444,17 @@ struct UsageHistoryView: View {
                         switch column {
                         case 0:
                             Button {
-                                state.model = state.model == item.id ? nil : item.id
+                                let clear = state.model == item.model && history.selectedProvider == item.provider
+                                state.modelProvider = item.provider
+                                history.selectedProvider = item.provider
+                                state.model = clear ? nil : item.model
                             } label: {
-                                Text(item.title).lineLimit(1).truncationMode(.middle)
+                                Text(history.selectedProvider == nil ? "\(item.provider.title): \(item.title)" : item.title)
+                                    .lineLimit(1).truncationMode(.middle)
                             }
                             .buttonStyle(.plain)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .help(state.model == item.id ? "Show all models" : "Show only \(item.title)")
+                            .help(state.model == item.model ? "Show all models" : "Show only \(item.title)")
                         case 1:
                             let share = Double(item.tokens.total) / Double(total)
                             HStack(spacing: 6) {
@@ -506,9 +540,13 @@ struct UsageHistoryView: View {
     // MARK: Insights
 
     @ViewBuilder private var insights: some View {
-        if let comparison = history.comparison, !comparison.insights.isEmpty {
+        if let comparison = state.model == nil ? history.comparison : state.modelComparison,
+           !comparison.insights.isEmpty {
             Section {
-                ForEach(comparison.insights) { insight in
+                ForEach(comparison.insights.filter {
+                    ($0.kind != .compaction || (history.selectedProvider == .copilot && state.model == nil)) &&
+                        ($0.kind != .modelMix || state.model == nil)
+                }) { insight in
                     Button {
                         history.selectedEvidence = comparison.evidence(for: insight)
                     } label: {
@@ -615,7 +653,13 @@ struct UsageHistoryView: View {
     private var modelOptions: [HistoryModel] {
         var values: [String: HistoryModel] = [:]
         for item in (state.snapshot?.models ?? []) + (state.baseline?.models ?? []) { values[item.id] = item }
-        if let model = state.model, values[model] == nil { values[model] = HistoryModel(id: model, tokens: HistoryTotals()) }
+        if let model = state.model, !values.values.contains(where: {
+            $0.model == model && (state.modelProvider == nil || $0.provider == state.modelProvider)
+        }) {
+            let fallback = HistoryModel(id: model, tokens: HistoryTotals(),
+                provider: state.modelProvider ?? history.selectedProvider ?? .copilot)
+            values[fallback.id] = fallback
+        }
         return values.values.sorted { $0.title < $1.title }
     }
 
@@ -623,13 +667,38 @@ struct UsageHistoryView: View {
         guard !Task.isCancelled else { return }
         state.loading = true
         state.queryError = nil
+        clearSnapshots()
         let selectedInterval = interval, pair = comparisonIntervals, selectedModel = state.model
+        let scope = HistoryQueryScope(provider: history.selectedProvider, source: history.selectedSource)
         do {
-            let full = try await history.read(selectedInterval, model: selectedModel)
-            let left = try await history.read(pair.0, model: selectedModel)
-            let right = try await history.read(pair.1, model: selectedModel)
+            let full = try await history.read(selectedInterval, model: selectedModel, scope: scope)
+            let left = try await history.read(pair.0, model: selectedModel, scope: scope)
+            let right = try await history.read(pair.1, model: selectedModel, scope: scope)
+            var providers: [UsageProvider: HistorySnapshot] = [:]
+            if scope.provider == nil && scope.source == nil {
+                for provider in UsageProvider.allCases {
+                    providers[provider] = try await history.read(selectedInterval, model: selectedModel,
+                        scope: HistoryQueryScope(provider: provider, source: nil))
+                }
+            }
+            var modelComparison: HistoryInsightComparison?
+            if let selectedModel {
+                let periods = HistoryInsightComparison.periods(now: Date(), calendar: calendar)
+                let current = try await history.read(periods.0, model: selectedModel, scope: scope)
+                let previous = try await history.read(periods.1, model: selectedModel, scope: scope)
+                func filtered(_ snapshot: HistorySnapshot) -> HistorySnapshot {
+                    HistorySnapshot(days: snapshot.days, models: snapshot.models.filter { $0.model == selectedModel },
+                        zone: snapshot.zone, began: snapshot.began, bytes: snapshot.bytes, totals: snapshot.totals,
+                        hasImportedData: snapshot.hasImportedData, recordingCoverage: snapshot.recordingCoverage)
+                }
+                if let current, let previous {
+                    modelComparison = try HistoryInsightComparison(current: filtered(current), previous: filtered(previous), now: Date())
+                }
+            }
             try Task.checkCancellation()
             state.snapshot = full; state.comparisonCurrent = left; state.baseline = right
+            state.providerSnapshots = providers
+            state.modelComparison = modelComparison
             state.loading = false
         } catch is CancellationError {
             // The next selection owns the loading state.
@@ -639,5 +708,11 @@ struct UsageHistoryView: View {
             state.snapshot = nil; state.baseline = nil; state.comparisonCurrent = nil
             state.loading = false
         }
+    }
+
+    private func clearSnapshots() {
+        state.snapshot = nil; state.baseline = nil; state.comparisonCurrent = nil
+        state.providerSnapshots = [:]
+        state.modelComparison = nil
     }
 }

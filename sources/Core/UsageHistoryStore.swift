@@ -38,7 +38,7 @@ public final class UsageHistoryStore {
         do {
             sqlite3_busy_timeout(database, 1000)
             let version = try scalar("PRAGMA user_version")
-            guard version <= 6 else { throw HistoryError.schema }
+            guard version <= 7 else { throw HistoryError.schema }
             guard version >= 0 else { throw HistoryError.invalid }
             try execute("PRAGMA journal_mode=DELETE")
             try execute("PRAGMA synchronous=FULL")
@@ -131,6 +131,7 @@ public final class UsageHistoryStore {
                     try set("hourly_began", String(now.timeIntervalSince1970))
                 }
                 if version < 6 { try migrateSources() }
+                if version < 7 { try migrateProviders() }
                 guard let zoneName = try get("zone"), let storedZone = TimeZone(identifier: zoneName),
                       let start = try get("began").flatMap(Double.init),
                       let hourlyStart = try get("hourly_began").flatMap(Double.init),
@@ -144,6 +145,7 @@ public final class UsageHistoryStore {
                 try Self.validateDate(began)
                 try Self.validateDate(hourlyBegan)
                 receiptKey = SymmetricKey(data: keyData)
+                try migrateRecordingStarts(legacyCLI: version > 0 && version < 6)
                 try pruneReceipts(now: now)
                 for source in UsageSource.allCases {
                     if let last = try checkpoint("active", source: source) {
@@ -236,6 +238,83 @@ public final class UsageHistoryStore {
         PRAGMA user_version=6;
         """)
         try set("receipt_key", receiptKey.withUnsafeBytes { Data($0).base64EncodedString() })
+    }
+
+    private func migrateProviders() throws {
+        try execute("""
+        CREATE TABLE usage_v7 (
+          day TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'cli'
+            CHECK(source IN ('cli','vscodeLocal','vscodeCopilot','claudeCLI','claudeDesktop')),
+          model TEXT NOT NULL, accounting INTEGER NOT NULL CHECK(typeof(accounting)='integer' AND accounting IN (0,1)),
+          input INTEGER NOT NULL DEFAULT 0 CHECK(typeof(input)='integer' AND input>=0),
+          output INTEGER NOT NULL DEFAULT 0 CHECK(typeof(output)='integer' AND output>=0),
+          cache_input INTEGER NOT NULL DEFAULT 0 CHECK(typeof(cache_input)='integer' AND cache_input>=0),
+          calls INTEGER NOT NULL DEFAULT 0 CHECK(typeof(calls)='integer' AND calls>=0),
+          cache_reported_calls INTEGER NOT NULL DEFAULT 0
+            CHECK(typeof(cache_reported_calls)='integer' AND cache_reported_calls BETWEEN 0 AND calls),
+          cache_unreported_calls INTEGER NOT NULL DEFAULT 0
+            CHECK(typeof(cache_unreported_calls)='integer' AND cache_unreported_calls BETWEEN 0 AND calls-cache_reported_calls),
+          cache_write INTEGER NOT NULL DEFAULT 0 CHECK(typeof(cache_write)='integer' AND cache_write>=0),
+          write_reported_calls INTEGER NOT NULL DEFAULT 0
+            CHECK(typeof(write_reported_calls)='integer' AND write_reported_calls BETWEEN 0 AND calls),
+          write_unreported_calls INTEGER NOT NULL DEFAULT 0
+            CHECK(typeof(write_unreported_calls)='integer' AND write_unreported_calls BETWEEN 0 AND calls-write_reported_calls),
+          first_sum REAL NOT NULL DEFAULT 0 CHECK(first_sum>=0 AND first_sum<=1.7976931348623157e308),
+          first_count INTEGER NOT NULL DEFAULT 0 CHECK(typeof(first_count)='integer' AND first_count BETWEEN 0 AND calls),
+          duration_sum REAL NOT NULL DEFAULT 0 CHECK(duration_sum>=0 AND duration_sum<=1.7976931348623157e308),
+          duration_count INTEGER NOT NULL DEFAULT 0 CHECK(typeof(duration_count)='integer' AND duration_count BETWEEN 0 AND calls),
+          cost_micros INTEGER NOT NULL DEFAULT 0 CHECK(typeof(cost_micros)='integer' AND cost_micros>=0),
+          cost_reported_calls INTEGER NOT NULL DEFAULT 0
+            CHECK(typeof(cost_reported_calls)='integer' AND cost_reported_calls BETWEEN 0 AND calls),
+          CHECK(cost_reported_calls>0 OR cost_micros=0),
+          CHECK(source IN ('claudeCLI','claudeDesktop') OR (cost_micros=0 AND cost_reported_calls=0)),
+          CHECK(typeof(input+output+cache_input+cache_write)='integer'),
+          PRIMARY KEY(day,source,model,accounting));
+        INSERT INTO usage_v7(day,source,model,accounting,input,output,cache_input,calls,
+          cache_reported_calls,cache_unreported_calls,cache_write,write_reported_calls,write_unreported_calls,
+          first_sum,first_count,duration_sum,duration_count)
+          SELECT * FROM usage;
+        DROP TABLE usage;
+        ALTER TABLE usage_v7 RENAME TO usage;
+        CREATE TABLE coverage_v7 (
+          day TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'cli'
+            CHECK(source IN ('cli','vscodeLocal','vscodeCopilot','claudeCLI','claudeDesktop',
+              'all','provider:copilot','provider:claudeCode')),
+          seconds REAL NOT NULL DEFAULT 0 CHECK(seconds BETWEEN 0 AND 86400000),
+          gap INTEGER NOT NULL DEFAULT 0 CHECK(gap IN (0,1)),
+          imported INTEGER NOT NULL DEFAULT 0 CHECK(imported IN (0,1)), PRIMARY KEY(day,source));
+        INSERT INTO coverage_v7 SELECT * FROM coverage;
+        INSERT INTO coverage_v7 SELECT day,'provider:copilot',seconds,gap,imported FROM coverage WHERE source='all';
+        DROP TABLE coverage;
+        ALTER TABLE coverage_v7 RENAME TO coverage;
+        CREATE TABLE hourly_usage_v7 (
+          start REAL NOT NULL CHECK(typeof(start) IN ('real','integer') AND start>=-62135596800 AND start<253402300800),
+          source TEXT NOT NULL DEFAULT 'cli'
+            CHECK(source IN ('cli','vscodeLocal','vscodeCopilot','claudeCLI','claudeDesktop',
+              'all','provider:copilot','provider:claudeCode')),
+          tokens INTEGER NOT NULL DEFAULT 0 CHECK(typeof(tokens)='integer' AND tokens>=0),
+          calls INTEGER NOT NULL DEFAULT 0 CHECK(typeof(calls)='integer' AND calls>=0),
+          seconds REAL NOT NULL DEFAULT 0 CHECK(seconds BETWEEN 0 AND 86400000),
+          gap INTEGER NOT NULL DEFAULT 0 CHECK(gap IN (0,1)),
+          CHECK(source NOT IN ('all','provider:copilot','provider:claudeCode') OR (tokens=0 AND calls=0)),
+          PRIMARY KEY(start,source));
+        INSERT INTO hourly_usage_v7 SELECT * FROM hourly_usage;
+        INSERT INTO hourly_usage_v7 SELECT start,'provider:copilot',tokens,calls,seconds,gap FROM hourly_usage WHERE source='all';
+        DROP TABLE hourly_usage;
+        ALTER TABLE hourly_usage_v7 RENAME TO hourly_usage;
+        CREATE TABLE coverage_intervals_v7 (
+          day TEXT NOT NULL, source TEXT NOT NULL
+            CHECK(source IN ('cli','vscodeLocal','vscodeCopilot','claudeCLI','claudeDesktop',
+              'all','provider:copilot','provider:claudeCode')),
+          start REAL NOT NULL, end REAL NOT NULL CHECK(end>start), PRIMARY KEY(day,source,start));
+        INSERT INTO coverage_intervals_v7 SELECT * FROM coverage_intervals;
+        INSERT INTO coverage_intervals_v7 SELECT day,'provider:copilot',start,end FROM coverage_intervals WHERE source='all';
+        DROP TABLE coverage_intervals;
+        ALTER TABLE coverage_intervals_v7 RENAME TO coverage_intervals;
+        ALTER TABLE durable_receipts ADD COLUMN provider TEXT NOT NULL DEFAULT 'copilot' CHECK(provider IN ('copilot','claudeCode'));
+        CREATE INDEX durable_receipts_provider ON durable_receipts(provider);
+        PRAGMA user_version=7;
+        """)
     }
 
     private static func validateDate(_ date: Date) throws {
@@ -332,7 +411,7 @@ public final class UsageHistoryStore {
         try Self.validateDate(event.timestamp)
         guard event.kind.isMetric, event.kind != .contextInvalidated,
               event.source == .cli || (event.kind == .usage && event.metricSource != nil),
-              !importing || event.usageSource != .cli,
+              !importing || (event.provider == .copilot && event.usageSource != .cli),
               event.timestamp <= now.addingTimeInterval(importing ? 0 : 30) else {
             throw TokenotchError.invalidEvent
         }
@@ -341,8 +420,9 @@ public final class UsageHistoryStore {
     private func receiptID(_ event: ActivityEvent) -> String {
         let id = event.tokens?.callID ?? event.metricID ?? event.id
         guard event.usageSource != .cli else { return id }
+        let owner = event.provider == .claudeCode ? event.provider.rawValue : event.usageSource.rawValue
         return HMAC<SHA256>.authenticationCode(
-            for: Data("\(event.usageSource.rawValue):\(id)".utf8), using: receiptKey)
+            for: Data("\(owner):\(id)".utf8), using: receiptKey)
             .map { String(format: "%02x", $0) }.joined()
     }
 
@@ -377,7 +457,13 @@ public final class UsageHistoryStore {
                     try run("INSERT INTO receipts VALUES (?,?) ON CONFLICT(id) DO NOTHING",
                             [id, String(now.timeIntervalSince1970)])
                 } else {
-                    try run("INSERT INTO durable_receipts VALUES (?) ON CONFLICT(id) DO NOTHING", [id])
+                    if event.provider == .claudeCode,
+                       try scalar("SELECT count(*) FROM durable_receipts WHERE id=?", [id]) == 0,
+                       try scalar("SELECT count(*) FROM durable_receipts WHERE provider='claudeCode'") >= 1_000_000 {
+                        throw HistoryError.capacity
+                    }
+                    try run("INSERT INTO durable_receipts(id,provider) VALUES (?,?) ON CONFLICT(id) DO NOTHING",
+                            [id, event.provider.rawValue])
                 }
                 guard sqlite3_changes(database) != 0 else { continue }
                 inserted += 1
@@ -392,8 +478,9 @@ public final class UsageHistoryStore {
                     }
                     try run("""
                     INSERT INTO usage(day,source,model,input,output,cache_input,calls,first_sum,first_count,duration_sum,duration_count,
-                      cache_reported_calls,cache_unreported_calls,accounting,cache_write,write_reported_calls,write_unreported_calls)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)
+                      cache_reported_calls,cache_unreported_calls,accounting,cache_write,write_reported_calls,write_unreported_calls,
+                      cost_micros,cost_reported_calls)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?)
                     ON CONFLICT(day,source,model,accounting) DO UPDATE SET
                       input=input+excluded.input, output=output+excluded.output,
                       cache_input=cache_input+excluded.cache_input, calls=calls+excluded.calls,
@@ -403,13 +490,15 @@ public final class UsageHistoryStore {
                       write_reported_calls=write_reported_calls+excluded.write_reported_calls,
                       write_unreported_calls=write_unreported_calls+excluded.write_unreported_calls,
                       first_sum=first_sum+excluded.first_sum, first_count=first_count+excluded.first_count,
-                      duration_sum=duration_sum+excluded.duration_sum, duration_count=duration_count+excluded.duration_count
+                      duration_sum=duration_sum+excluded.duration_sum, duration_count=duration_count+excluded.duration_count,
+                      cost_micros=cost_micros+excluded.cost_micros, cost_reported_calls=cost_reported_calls+excluded.cost_reported_calls
                     """, [day, source, model, String(tokens.input), String(tokens.output), String(tokens.cacheInput), "1",
                           String(tokens.timeToFirstTokenMs ?? 0), tokens.timeToFirstTokenMs == nil ? "0" : "1",
                           String(tokens.durationMs ?? 0), tokens.durationMs == nil ? "0" : "1",
                           tokens.cacheInputReported == true ? "1" : "0", tokens.cacheInputReported == false ? "1" : "0",
                           String(tokens.cacheWrite), tokens.cacheWriteReported == true ? "1" : "0",
-                          tokens.cacheWriteReported == false ? "1" : "0"])
+                          tokens.cacheWriteReported == false ? "1" : "0",
+                          String(tokens.estimatedCostMicros ?? 0), tokens.estimatedCostMicros == nil ? "0" : "1"])
                     if includeHourly {
                         try run("""
                         INSERT INTO hourly_usage(start,source,tokens,calls) VALUES (?,?,?,1)
@@ -450,7 +539,7 @@ public final class UsageHistoryStore {
     private func writeGap(at date: Date, sources: Set<UsageSource>, imported: Bool = false,
                           includeHourly: Bool? = nil) throws {
         guard !sources.isEmpty else { return }
-        for source in sources.map(\.rawValue).sorted() + ["all"] {
+        for source in coverageSources(sources) {
             try run("""
             INSERT INTO coverage(day,source,gap,imported) VALUES (?,?,1,?)
             ON CONFLICT(day,source) DO UPDATE SET gap=1,imported=max(imported,excluded.imported)
@@ -471,6 +560,9 @@ public final class UsageHistoryStore {
         try Self.validateDate(end)
         try transaction {
             for source in sources {
+                if active, try recordingBegan(source: source) == nil {
+                    try set("recording_began:\(source.rawValue)", String(start.timeIntervalSince1970))
+                }
                 if active, let paused = try checkpoint("inactive_since", source: source) {
                     try writeGap(at: paused, sources: [source])
                     try writeGap(at: start, sources: [source])
@@ -488,7 +580,7 @@ public final class UsageHistoryStore {
                 let hour = clock.hour(containing: cursor)
                 let next = min(end, hour.end)
                 if !sources.isEmpty {
-                    for source in sources.map(\.rawValue).sorted() + ["all"] {
+                    for source in coverageSources(sources) {
                         try recordCoverage(from: cursor, to: next, source: source)
                     }
                 }
@@ -506,6 +598,74 @@ public final class UsageHistoryStore {
                 try execute("DELETE FROM receipts")
             }
         }
+    }
+
+    private func coverageSources(_ sources: Set<UsageSource>) -> [String] {
+        guard !sources.isEmpty else { return [] }
+        return Set(sources.map(\.rawValue) + sources.map { "provider:\($0.provider.rawValue)" } + ["all"]).sorted()
+    }
+
+    public func recordingBegan(source: UsageSource) throws -> Date? {
+        guard let text = try get("recording_began:\(source.rawValue)") else { return nil }
+        guard let time = Double(text) else { throw HistoryError.invalid }
+        let date = Date(timeIntervalSince1970: time)
+        try Self.validateDate(date)
+        return date
+    }
+
+    private func migrateRecordingStarts(legacyCLI: Bool) throws {
+        for source in UsageSource.allCases {
+            if try recordingBegan(source: source) != nil { continue }
+            if source == .cli && legacyCLI {
+                try set("recording_began:\(source.rawValue)", String(began.timeIntervalSince1970))
+                continue
+            }
+            let s = try statement("SELECT min(start) FROM coverage_intervals WHERE source=?", [source.rawValue])
+            defer { sqlite3_finalize(s) }
+            guard sqlite3_step(s) == SQLITE_ROW else { throw HistoryError.storage }
+            if sqlite3_column_type(s, 0) != SQLITE_NULL {
+                let start = Date(timeIntervalSince1970: sqlite3_column_double(s, 0))
+                try Self.validateDate(start)
+                try set("recording_began:\(source.rawValue)", String(start.timeIntervalSince1970))
+            }
+        }
+    }
+
+    public func recordingCoverage(source: UsageSource? = nil,
+                                  provider: UsageProvider? = nil) throws -> HistoryRecordingCoverage {
+        let filter = try sourceFilter(source: source, provider: provider)
+        var relevant = source.map { Set([$0]) } ?? []
+        let s = try statement("""
+            SELECT DISTINCT source FROM usage WHERE 1=1 \(filter.clause)
+            UNION SELECT DISTINCT source FROM coverage WHERE source NOT IN ('all','provider:copilot','provider:claudeCode') \(filter.clause)
+            """, filter.values + filter.values)
+        defer { sqlite3_finalize(s) }
+        while true {
+            let code = sqlite3_step(s)
+            if code == SQLITE_DONE { break }
+            guard code == SQLITE_ROW, let value = try UsageSource(rawValue: text(s, 0)) else { throw HistoryError.invalid }
+            relevant.insert(value)
+        }
+        var starts: [UsageSource: Date] = [:]
+        let candidates = source.map { [$0] } ?? provider?.sources ?? UsageSource.allCases
+        for candidate in candidates {
+            if let date = try recordingBegan(source: candidate) {
+                relevant.insert(candidate)
+                starts[candidate] = date
+            }
+        }
+        return HistoryRecordingCoverage(sources: relevant, starts: starts)
+    }
+
+    private func sourceFilter(source: UsageSource?, provider: UsageProvider?) throws -> (clause: String, values: [String]) {
+        if let source {
+            guard provider == nil || provider == source.provider else { throw HistoryError.invalid }
+            return (" AND source=?", [source.rawValue])
+        }
+        if let provider {
+            return (" AND source IN (\(provider.sources.map { _ in "?" }.joined(separator: ",")))", provider.sources.map(\.rawValue))
+        }
+        return ("", [])
     }
 
     // These are coalesced collection checkpoints, never request/session spans.
@@ -555,16 +715,22 @@ public final class UsageHistoryStore {
         try run("DELETE FROM hourly_usage WHERE start < ?", [String(interval.start.timeIntervalSince1970)])
     }
 
-    public func hourlyTimeline(now: Date, source: UsageSource? = nil) throws -> UsageTimeline {
+    public func hourlyTimeline(now: Date, source: UsageSource? = nil, provider: UsageProvider? = nil) throws -> UsageTimeline {
         try validateFiles()
         try pruneHourlyHistory(now: now)
         let intervals = clock.hours(on: now)
         let day = clock.interval(.today, selected: now, now: now)
+        let filter = try sourceFilter(source: source, provider: provider)
+        let coverageSource = source?.rawValue ?? provider.map { "provider:\($0.rawValue)" } ?? "all"
+        let detailBegan = try recordingCoverage(source: source, provider: provider).comparisonBegan
+            .map { max(hourlyBegan, $0) }
+        let sourceValues = filter.values.isEmpty ? [] : filter.values + [coverageSource]
+        let clause = sourceValues.isEmpty ? "" : "AND source IN (\(sourceValues.map { _ in "?" }.joined(separator: ",")))"
         let s = try statement("""
         SELECT start,sum(tokens),sum(calls),max(CASE WHEN source=? THEN seconds ELSE 0 END),max(gap)
-        FROM hourly_usage WHERE start>=? AND start<? \(source == nil ? "" : "AND source=?") GROUP BY start
-        """, [source?.rawValue ?? "all", String(day.start.timeIntervalSince1970), String(day.end.timeIntervalSince1970)]
-             + (source.map { [$0.rawValue] } ?? []))
+        FROM hourly_usage WHERE start>=? AND start<? \(clause) GROUP BY start
+        """, [coverageSource, String(day.start.timeIntervalSince1970), String(day.end.timeIntervalSince1970)]
+             + sourceValues)
         defer { sqlite3_finalize(s) }
         var values: [Date: UsageBucket] = [:]
         var total: Int64 = 0, calls: Int64 = 0
@@ -590,28 +756,30 @@ public final class UsageHistoryStore {
                 throw HistoryError.invalid
             }
             total = nextTotal; calls = nextCalls
-            bucket.gap = gap == 1 || interval.start < hourlyBegan
+            bucket.gap = gap == 1 || detailBegan.map { interval.start < $0 } ?? true
             values[date] = bucket
         }
         return UsageTimeline(granularity: .hour,
             buckets: intervals.map { values[$0.start] ?? UsageBucket(interval: $0) },
-            zone: clock.calendar.timeZone.identifier, detailBegan: hourlyBegan)
+            zone: clock.calendar.timeZone.identifier, detailBegan: detailBegan)
     }
 
     public func query(_ interval: DateInterval, model: String? = nil,
-                      source: UsageSource? = nil) throws -> HistorySnapshot {
+                      source: UsageSource? = nil, provider: UsageProvider? = nil) throws -> HistorySnapshot {
         try validateFiles()
         try Self.validateDate(interval.start)
         try Self.validateDate(interval.end)
         guard clock.dayCount(interval) <= 366 else { throw HistoryError.invalid }
         let start = clock.key(interval.start), end = clock.key(interval.end)
-        let sourceFilter = source == nil ? "" : " AND source=?"
-        let values = [start, end] + (source.map { [$0.rawValue] } ?? [])
+        let filter = try sourceFilter(source: source, provider: provider)
+        let sourceFilter = filter.clause
+        let values = [start, end] + filter.values
         var days: [String: HistoryDay] = [:]
-        var models: [String: HistoryTotals] = [:]
+        var models: [String: HistoryModel] = [:]
         let s = try statement("""
         SELECT day,model,input,output,cache_input,calls,first_sum,first_count,duration_sum,duration_count,
-          cache_reported_calls,cache_unreported_calls,cache_write,write_reported_calls,write_unreported_calls,accounting
+          cache_reported_calls,cache_unreported_calls,cache_write,write_reported_calls,write_unreported_calls,accounting,
+          cost_micros,cost_reported_calls,source
         FROM usage WHERE day>=? AND day<? \(sourceFilter) ORDER BY day,model
         """, values)
         defer { sqlite3_finalize(s) }
@@ -633,6 +801,9 @@ public final class UsageHistoryStore {
             value.cacheWriteUnreportedCalls = sqlite3_column_int64(s, 14)
             let accounting = sqlite3_column_int64(s, 15)
             value.unverifiedCalls = accounting == 0 ? value.calls : 0
+            value.estimatedCostMicros = sqlite3_column_int64(s, 16)
+            value.costReportedCalls = sqlite3_column_int64(s, 17)
+            guard let owner = try UsageSource(rawValue: text(s, 18))?.provider else { throw HistoryError.invalid }
             guard value.input >= 0, value.output >= 0, value.cacheInput >= 0, value.calls >= 0,
                   value.cacheCoverage.isValid, value.breakdown.write.isValid,
                   (0...1).contains(accounting),
@@ -640,8 +811,15 @@ public final class UsageHistoryStore {
                   (12...15).allSatisfy({ sqlite3_column_type(s, Int32($0)) == SQLITE_INTEGER }),
                   sqlite3_column_type(s, 10) == SQLITE_INTEGER, sqlite3_column_type(s, 11) == SQLITE_INTEGER,
                   (0...value.calls).contains(value.firstTokenSamples), (0...value.calls).contains(value.durationSamples),
-                  value.firstTokenSum.isFinite, value.durationSum.isFinite else { throw HistoryError.invalid }
-            try models[name, default: HistoryTotals()].add(value)
+                  value.firstTokenSum.isFinite, value.durationSum.isFinite, value.costCoverage.isValid,
+                  sqlite3_column_type(s, 16) == SQLITE_INTEGER, sqlite3_column_type(s, 17) == SQLITE_INTEGER,
+                  owner == .claudeCode || (value.estimatedCostMicros == 0 && value.costReportedCalls == 0) else {
+                throw HistoryError.invalid
+            }
+            let identity = "\(owner.rawValue):\(name)"
+            var modelTotals = models[identity]?.tokens ?? HistoryTotals()
+            try modelTotals.add(value)
+            models[identity] = HistoryModel(id: name, tokens: modelTotals, provider: owner)
             if model == nil || model == name {
                 if days[day] == nil { days[day] = HistoryDay(day: day) }
                 try days[day]?.tokens.add(value)
@@ -677,7 +855,7 @@ public final class UsageHistoryStore {
         }
         let coverage = try statement("""
         SELECT day,seconds,gap,imported FROM coverage WHERE day>=? AND day<? AND source=?
-        """, [start, end, source?.rawValue ?? "all"])
+        """, [start, end, source?.rawValue ?? provider.map { "provider:\($0.rawValue)" } ?? "all"])
         defer { sqlite3_finalize(coverage) }
         while true {
             let status = sqlite3_step(coverage)
@@ -696,9 +874,37 @@ public final class UsageHistoryStore {
         var totals = HistoryTotals()
         for day in days.values { try totals.add(day.tokens) }
         return HistorySnapshot(days: days.values.sorted { $0.day < $1.day },
-            models: models.map { HistoryModel(id: $0.key, tokens: $0.value) }.sorted { $0.tokens.total > $1.tokens.total },
+            models: models.values.sorted { $0.tokens.total > $1.tokens.total },
             zone: clock.calendar.timeZone.identifier, began: began,
-            bytes: bytes, totals: totals, hasImportedData: days.values.contains(where: \.imported))
+            bytes: bytes, totals: totals, hasImportedData: days.values.contains(where: \.imported),
+            recordingCoverage: try recordingCoverage(source: source, provider: provider))
+    }
+
+    public func delete(provider: UsageProvider) throws {
+        try validateFiles()
+        try transaction {
+            let sources = provider.sources.map(\.rawValue)
+            let placeholders = sources.map { _ in "?" }.joined(separator: ",")
+            try run("DELETE FROM usage WHERE source IN (\(placeholders))", sources)
+            let removed = sources + ["provider:\(provider.rawValue)", "all"]
+            let selections = removed.map { _ in "?" }.joined(separator: ",")
+            for table in ["coverage", "hourly_usage", "coverage_intervals"] {
+                try run("DELETE FROM \(table) WHERE source IN (\(selections))", removed)
+            }
+            let other = provider == .copilot ? UsageProvider.claudeCode : .copilot
+            let survivor = "provider:\(other.rawValue)"
+            try run("INSERT INTO coverage SELECT day,'all',seconds,gap,imported FROM coverage WHERE source=?", [survivor])
+            try run("INSERT INTO hourly_usage SELECT start,'all',tokens,calls,seconds,gap FROM hourly_usage WHERE source=?", [survivor])
+            try run("INSERT INTO coverage_intervals SELECT day,'all',start,end FROM coverage_intervals WHERE source=?", [survivor])
+            try run("DELETE FROM durable_receipts WHERE provider=?", [provider.rawValue])
+            if provider == .copilot { try execute("DELETE FROM receipts; DELETE FROM context;") }
+            for source in provider.sources {
+                for key in ["recording_began:\(source.rawValue)", checkpointKey("active", source: source),
+                            checkpointKey("inactive_since", source: source)] {
+                    try run("DELETE FROM metadata WHERE key=?", [key])
+                }
+            }
+        }
     }
 
     public func delete() throws {

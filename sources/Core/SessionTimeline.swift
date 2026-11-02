@@ -5,6 +5,7 @@ public enum TimelineError: String, Error, LocalizedError {
     case schema = "This timeline archive needs a newer Tokenotch version. It was left unchanged."
     case invalid = "Unsupported timeline data. The archive was left unchanged."
     case queueFull = "Timeline recording could not keep up. Recording is paused; observations may be missing."
+    case capacity = "Claude timeline identity storage reached its limit. Recording is paused; saved timelines were not reset."
     public var errorDescription: String? { rawValue }
 }
 
@@ -20,7 +21,11 @@ public struct TimelineSession: Identifiable, Sendable {
     public let last: Date
     public let count: Int
     public let truncated: Bool
-    public var label: String { "\(source.title) session \(id.prefix(8))" }
+    public var clients: Set<Client> = []
+    public var provider: UsageProvider { source.provider }
+    public var label: String {
+        "\(provider == .copilot ? source.title : provider.title) session \(id.prefix(8))"
+    }
 }
 
 public struct TimelineEvent: Codable, Identifiable, Sendable {
@@ -45,6 +50,8 @@ public struct TimelineEvent: Codable, Identifiable, Sendable {
     public var cacheWriteReported: Bool? = nil
     public var accountingVersion: Int? = TokenUsage.accountingVersion
     public var metricSource: UsageSource? = nil
+    public var estimatedCostMicros: Int64? = nil
+    public var provider: UsageProvider { metricSource?.provider ?? source.provider }
 
     public var cacheCoverage: CacheInputCoverage? {
         guard kind == .usage else { return nil }
@@ -78,13 +85,14 @@ public struct TimelineEvent: Codable, Identifiable, Sendable {
             tokens = TokenUsage(callID: id, input: input, output: output, cacheInput: cacheInput ?? 0,
                                 cacheInputReported: cacheInputReported, model: model,
                                 durationMs: durationMs, timeToFirstTokenMs: firstTokenMs,
-                                cacheWrite: cacheWrite ?? 0, cacheWriteReported: cacheWriteReported)
+                                cacheWrite: cacheWrite ?? 0, cacheWriteReported: cacheWriteReported,
+                                estimatedCostMicros: estimatedCostMicros)
             context = nil
             compaction = nil
         } else {
             guard model == nil, input == nil, output == nil, cacheInput == nil,
                   cacheInputReported == nil, cacheWrite == nil, cacheWriteReported == nil,
-                  firstTokenMs == nil, durationMs == nil else {
+                  firstTokenMs == nil, durationMs == nil, estimatedCostMicros == nil else {
                 throw TimelineError.invalid
             }
             tokens = nil
@@ -105,7 +113,8 @@ public struct TimelineEvent: Codable, Identifiable, Sendable {
         }
         try ActivityEvent(source: source, session: session, kind: kind, timestamp: timestamp,
             tokens: tokens, context: context, compaction: compaction,
-            metricID: kind == .compaction ? id : nil, metricSource: metricSource).validate(now: timestamp)
+            metricID: kind == .compaction ? id : nil, metricSource: metricSource,
+            metricSessionReported: provider == .claudeCode ? true : nil).validate(now: timestamp)
     }
 
     public var title: String {
@@ -162,6 +171,7 @@ extension TimelineEvent {
         accountingVersion = try values.contains(.accountingVersion)
             ? values.decode(Int.self, forKey: .accountingVersion) : nil
         metricSource = try values.decodeIfPresent(UsageSource.self, forKey: .metricSource)
+        estimatedCostMicros = try values.decodeIfPresent(Int64.self, forKey: .estimatedCostMicros)
         firstTokenMs = try values.decodeIfPresent(Double.self, forKey: .firstTokenMs)
         durationMs = try values.decodeIfPresent(Double.self, forKey: .durationMs)
         contextTokens = try values.decodeIfPresent(Int64.self, forKey: .contextTokens)

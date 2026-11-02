@@ -60,7 +60,7 @@ struct NotchSessionRow: Identifiable {
     let notice: SessionNotice?
     let date: Date
     var id: String { target.id }
-    var label: String { "\(target.source == .cli ? "CLI" : "VS Code") \(target.noticeSessionID.prefix(6))" }
+    var label: String { "\(target.source == .cli ? "CLI" : target.source.shortTitle) \(target.noticeSessionID.prefix(6))" }
 }
 
 struct LiveUsageDetail {
@@ -89,12 +89,13 @@ struct NotchModelRow: Identifiable {
     var cacheWriteReportedCalls: Int64 = 0
     var cacheWriteUnreportedCalls: Int64 = 0
     var unverifiedCalls: Int64 = 0
+    var provider: UsageProvider = .copilot
     var tokens: Int64 { input + output + cacheInput + cacheWrite }
     var cacheCoverage: CacheInputCoverage {
         CacheInputCoverage(tokens: cacheInput, calls: calls,
             reportedCalls: cacheReportedCalls, unreportedCalls: cacheUnreportedCalls)
     }
-    var id: String { model.map { "model:\($0)" } ?? "residual" }
+    var id: String { (provider == .copilot ? "" : "\(provider.rawValue):") + (model.map { "model:\($0)" } ?? "residual") }
     var breakdown: TokenBreakdown {
         TokenBreakdown(read: cacheCoverage,
             write: CacheInputCoverage(tokens: cacheWrite, calls: calls,
@@ -106,14 +107,14 @@ struct NotchModelRow: Identifiable {
 
 extension NotchModelRow {
     init(_ value: HistoryModel) {
-        self.init(model: value.id, title: value.title, input: value.tokens.input,
+        self.init(model: value.model, title: value.title, input: value.tokens.input,
                   output: value.tokens.output, cacheInput: value.tokens.cacheInput, calls: value.tokens.calls,
                   cacheReportedCalls: value.tokens.cacheReportedCalls,
                   cacheUnreportedCalls: value.tokens.cacheUnreportedCalls,
                   cacheWrite: value.tokens.cacheWrite,
                   cacheWriteReportedCalls: value.tokens.cacheWriteReportedCalls,
                   cacheWriteUnreportedCalls: value.tokens.cacheWriteUnreportedCalls,
-                  unverifiedCalls: value.tokens.unverifiedCalls)
+                  unverifiedCalls: value.tokens.unverifiedCalls, provider: value.provider)
     }
 
     init(_ value: ObservedModelTokens) {
@@ -123,7 +124,7 @@ extension NotchModelRow {
                   cacheUnreportedCalls: value.tokens.cacheUnreportedCalls,
                   cacheWrite: value.tokens.cacheWrite,
                   cacheWriteReportedCalls: value.tokens.cacheWriteReportedCalls,
-                  cacheWriteUnreportedCalls: value.tokens.cacheWriteUnreportedCalls)
+                  cacheWriteUnreportedCalls: value.tokens.cacheWriteUnreportedCalls, provider: value.provider)
     }
 }
 
@@ -140,6 +141,7 @@ enum NotchUsageSource {
 }
 
 struct NotchPresentation {
+    var provider: UsageProvider? = .copilot
     var account: CopilotAccountSnapshot?
     var accountStatus = "Not connected"
     var accountStale = false
@@ -148,6 +150,7 @@ struct NotchPresentation {
     var sessions: [ObservedSession] = []
     var now = Date()
     var historyError: String?
+    var metricsWarning: String?
     var models: [ObservedModelTokens] = []
     var insights: [SessionInsight] = []
     var range: HistoryRange = .today
@@ -167,6 +170,10 @@ struct NotchPresentation {
     var noticeStorageMessage: String?
     var timeFormat: TimeFormat = .twentyFourHour
     var metricSource: UsageSource?
+    var claudeStatusLine: ClaudeStatusLineSnapshot?
+    var claudeStatusLineEnabled = false
+    var metricSessions: [ObservedSessionMetrics] = []
+    var openClaudeSessions: Set<String> = []
 
     static func fresh(_ date: Date, now: Date) -> Bool {
         now.timeIntervalSince(date) <= 300
@@ -180,7 +187,17 @@ struct NotchPresentation {
         sessions.filter { $0.hasMissingActivity(now: now) }.count
     }
 
+    private var recentMetricSessions: [ObservedSessionMetrics] {
+        metricSessions.filter {
+            $0.sessionReported && (openClaudeSessions.contains($0.id) || Self.fresh($0.lastObserved, now: now))
+        }
+    }
+
     var activityTitle: String {
+        if provider == .claudeCode {
+            let count = recentMetricSessions.count
+            return count == 0 ? "No recent sessions reported" : "\(count) \(count == 1 ? "session" : "sessions") reported"
+        }
         let rows = allSessionRows
         let errors = rows.filter { $0.signal == .error }.count
         if errors > 0 { return "\(errors) \(errors == 1 ? "session reported an error" : "sessions reported errors")" }
@@ -209,11 +226,25 @@ struct NotchPresentation {
     var sessionRows: [NotchSessionRow] { Array(allSessionRows.prefix(3)) }
 
     func context(for target: SessionDetailTarget) -> ObservedContext? {
-        guard target.source == .cli, let hash = target.liveHash else { return nil }
+        guard let hash = target.liveHash else { return nil }
+        if target.source == .claudeCLI {
+            return metricSessions.first { $0.id == hash && $0.source == .claudeCLI }?.context
+        }
+        guard target.source == .cli else { return nil }
         return insights.first { $0.id == hash }?.context
     }
 
     var allSessionRows: [NotchSessionRow] {
+        if provider == .claudeCode {
+            return recentMetricSessions.map { metric in
+                NotchSessionRow(target: SessionDetailTarget(source: metric.source.client,
+                    noticeSessionID: metric.id, liveHash: metric.id),
+                    signal: .unknown, title: metric.tokens != nil ? "Usage observed" :
+                        (metric.context != nil ? "Context reported" : "Session reported"),
+                    detail: "Last reported \(relative(metric.lastObserved)); activity unavailable",
+                    notice: nil, date: metric.lastObserved)
+            }
+        }
         var rows: [String: NotchSessionRow] = [:]
         let notices = sessionNotices.filter {
             $0.disposition == .pending && ($0.needsHighlight || heldNoticeIDs.contains($0.id))
@@ -341,6 +372,8 @@ struct NotchPresentation {
             totals.cacheWrite = tokens.cacheWrite
             totals.cacheWriteReportedCalls = tokens.cacheWriteReportedCalls
             totals.cacheWriteUnreportedCalls = tokens.cacheWriteUnreportedCalls
+            totals.estimatedCostMicros = tokens.estimatedCostMicros
+            totals.costReportedCalls = tokens.costReportedCalls
             return totals
         default: return nil
         }

@@ -48,11 +48,18 @@ capture is off. An existing external collector or policy is not silently changed
 | VS Code usage receipts | Keyed, nonreversible call hashes retained with daily history until deletion; prevent duplicate live delivery and repeated/overlapping imports |
 | VS Code local receiver configuration | Private `vscode-telemetry.json`; local installation credential and port, removed on metrics withdrawal |
 | VS Code setup exchange | Private expiring request/result and owned-settings receipt; no prompts, raw telemetry or unrelated settings |
+| Claude CLI installation receipt | Private `claude-settings-receipt.json`; selected configuration root/directory identity, endpoint credential, inserted allowlisted exporter values and optional constant status-line/session-hook commands; retained until owned cleanup finishes |
+| Optional Claude quota/context | Memory only; latest numeric status-line readings for up to 100 sessions / 24 hours, stale after five minutes or a quota reset; no credential/transcript reads |
+| Optional Claude session tracking | Memory only; up to 4,096 provider-hashed start/end observations / 24 hours; separate bridge registration, no raw input, prompts, reasons or paths |
+| Claude estimated cost and receipts | Independently opt-in usage/timeline archives; numeric reported cost/coverage and up to 1,000,000 durable keyed call receipts per archive; provider-scoped deletion includes cost and that archive's receipts |
 | Connected account identity/quota | Memory only; fetched every 60 seconds; cleared on disconnect |
 | Separate official CLI profile | Private `~/.tokenotch/copilot-account`; contains CLI-managed configuration/credential state |
 
-The app never retains raw hook input, prompts, responses, commands, environment,
-repository names or transcript paths. The signed-in account name appears in the
+The app never retains raw hook input, prompts, responses, commands, observed environment,
+repository names or transcript paths. The installation receipt is a separate
+exception for the user-selected settings root and Tokenotch's constant approved
+exporter values and constant owned status-line command; it does not copy unrelated
+settings. The signed-in account name appears in the
 usage UI, but is excluded from diagnostic text. Diagnostic text is
 built from allowlisted statuses, not a log dump. Notification previews exclude
 workspace names. **Settings → Privacy → Live data → Clear…** clears
@@ -68,8 +75,13 @@ or CLI integration removal. Call-cap eviction visibly marks live totals partial.
 
 ## Updates
 
-Check for Updates contacts the configured public GitHub releases API only when
-you select it. GitHub receives ordinary network request metadata, but Tokenotch adds
+Check for Updates contacts the configured public GitHub releases API when you
+select it. On macOS, optional daily checks do the same while Tokenotch is open;
+they are off until enabled in About. The last check time and last announced
+version are retained in preferences to limit requests and deduplicate alerts
+across restarts. Banners require notification consent and respect macOS
+permission, categories, managed mute, snooze and quiet hours; skipped banners
+are not replayed. GitHub receives ordinary network request metadata, but Tokenotch adds
 no device/account identifier and sends no analytics. Responses are bounded and
 redirects are refused. A newer stable version opens a constructed official
 release URL; Tokenotch does not download or install updates.
@@ -165,6 +177,33 @@ stops become viewed and all other notices become dismissed. This engagement time
 is transient and discarded when the card closes.
 
 ## Persistent usage history
+
+The [Claude Code integration](claude-code-contract.md) uses provider-aware archive
+schemas. Legacy history and timeline consent apply only to Copilot. New Claude
+consent defaults off independently for history and timelines. Explicit local setup
+enables a separate logs-only local receiver, not archive consent or lifecycle.
+Only local CLI usage is collected. Desktop collection and attribution-copy
+controls have been removed. New CLI setup adds no marker; unchanged marker
+entries owned by an older receipt are removed safely, while user edits and
+historical observations remain. No Desktop conversation stores or private
+environment settings are inspected.
+Optional account checks use the official CLI's authentication-status command
+after consent, retaining only an authenticated flag and authentication method in
+memory. Emails, raw command output/errors and account identifiers are discarded.
+Browser sign-in runs in Terminal; Tokenotch never reads stored credentials.
+Only the enable preference, selected executable/configuration root and a temporary
+owner-only command launcher are stored. Stopping checks preserves the CLI login.
+Recording workers preserve unaffected sources when another provider connects,
+pauses, or disconnects. Historical comparisons require a known recording baseline
+for every relevant source; the archive's creation date is not a substitute.
+Claude archives can contain numeric estimated cost and reporting
+coverage, provider/client identity, and archive-keyed durable receipts (bounded
+at 1,000,000 per archive), never content or account identifiers. Only an explicitly
+selected `settings.json` and Tokenotch's ownership receipt are used for setup;
+credentials, transcripts, account profiles and private Desktop caches are never
+read. Removal preserves later edits and retained observations. Usage/cost and
+saved timeline deletion are separately confirmed and scoped by provider.
+Schema downgrade limits are documented in the contract.
 
 History collection is off until separately enabled with the explanation in
 Settings. Live collection records only new observations from connected sources
@@ -316,12 +355,13 @@ Manual toggling cannot bypass that floor. A failed request says source unavailab
 not “GitHub is down.” Native URLSession follows system proxy/TLS settings;
 corporate proxy/TLS behavior still needs acceptance testing. Separately,
 **Check for Updates** requests
-`https://api.github.com/repos/rottathiago/tokenotch/releases/latest` only when selected.
+`https://api.github.com/repos/rottathiago/tokenotch/releases/latest` when selected,
+or daily while the macOS app is running if daily checks are explicitly enabled.
 That unauthenticated request sends the app version as its User-Agent, has a
 128 KiB response bound and refuses redirects. See [updates](#updates).
 
 User-initiated browser actions open GitHub usage settings or GitHub Status.
-There is no phone/LAN listener or update polling.
+There is no phone/LAN listener or closed-app update polling.
 
 ## Managed restrictions
 
@@ -329,7 +369,7 @@ In the `io.github.rottathiago.tokenotch` preferences domain, **forced** `Disable
 `DisableNotifications`, `DisableHealth` and `DisableAccountConnection` booleans override user choices.
 Restrictions are loaded before the bridge/network starts. This is a minimal
 restriction surface, not a certified MDM package or full managed-settings
-contract. Manual updates are the only update mode.
+contract. Update download and installation remain manual.
 
 ## Troubleshooting
 

@@ -112,8 +112,9 @@ notes. Supporting files remain available in the workflow artifact, not as extra
 release attachments.
 
 Review the exact installers and their known limitations before owner-authorized
-publication. Publish the draft as a regular release, not a prerelease, to make it
-eligible for the manual updater. Unsigned downloads may need the normal per-app
+publication. Publish the draft as a regular release, not a prerelease, and
+explicitly mark it **latest** so both older manual checks and newer opt-in daily
+checks discover it. Unsigned downloads may need the normal per-app
 **Privacy & Security > Open Anyway** approval where allowed; see
 [support](support.md#unsigned-downloads). Do not disable Gatekeeper, strip
 quarantine, bypass managed-device policy or claim unperformed acceptance.
@@ -302,8 +303,10 @@ source can remain explicitly pre-release while binary acceptance is unfinished.
 
 ### Future update pipeline
 
-This roadmap is **not implemented** and requires a separate go-ahead. The current
-app only performs a manual release lookup and opens the official release page.
+Verified update installation in this roadmap is **not implemented** and requires
+a separate go-ahead. The current app opens the official release page from a
+manual lookup or opt-in daily checks while running. Version 1.0.0 only supports
+the manual lookup; publishing a release cannot push a notice to that binary.
 
 Use a pinned Sparkle 2 framework for verified installation, not a custom
 app-replacement script. Wire SwiftPM, XcodeGen, the native bundler and smoke
@@ -312,13 +315,13 @@ helpers correctly, and include dependency notices in the bundle and release
 inventory. Any development-only signing exception must not weaken production
 hardened runtime.
 
-Ask once for consent to daily background checks while Tokenotch is running.
-Keep download and installation user-initiated. Settings > About > Updates should
+Daily checks already require explicit consent in About. Keep download and
+installation user-initiated. Settings > About > Updates should eventually
 offer **Check for Updates** and **Update**, opening Sparkle's native confirmation
-and progress dialog. Show an in-app update indicator plus optional macOS
-notifications, respecting permission, managed mute, snooze and quiet hours.
-Deduplicate release notifications across restarts and route clicks to Updates,
-not session details. Reuse the notification-center delegate and do not run
+and progress dialog. Preserve the existing menu-bar update indicator and optional
+macOS notifications, respecting permission, managed mute, snooze and quiet hours.
+Release notifications are deduplicated across restarts and clicks route to
+Updates, not session details. Reuse the notification-center delegate and do not run
 competing update schedulers. No push server, closed-app polling, silent installs
 or system-profile analytics are planned.
 
@@ -375,8 +378,8 @@ After approval, publish the draft as a stable release with only the two notarize
 installers attached. Checksums and the source revision appear in its generated
 notes; the inventory and checksum files remain in the workflow artifact.
 A user's **Check for Updates**
-then compares that release's version and offers its official page; it does not
-poll, download, or install automatically. Verify this from an older signed build
+then compares that release's version and offers its official page. Newer builds
+can also check daily with consent; no build downloads or installs automatically. Verify this from an older signed build
 before announcing the release. For a first release with no older signed Tokenotch
 build, record that limitation and the owner's approved update-test approach;
 do not claim a production upgrade was tested when it was not.

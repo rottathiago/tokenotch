@@ -73,6 +73,26 @@ flowchart LR
 
 ## Components
 
+The macOS app also has an [experimental Claude Code CLI metrics
+integration](claude-code-contract.md). `ClaudeCodeIntegrationController` owns
+its receiver independently of VS Code, while `ClaudeCodeInstallation` manages
+only approved exporter entries and an optional exact-owned status line in an
+explicitly selected local settings root.
+Normalized CLI calls enter the provider-aware ledger and independently consented
+archives. Provider cells and filters keep Claude and Copilot identity separate.
+Claude's separate status-line opt-in sends allowlisted quota/reset windows and
+session context through the private local bridge, joins the telemetry session
+hash and remains memory-only. It does not read account credentials or transcripts.
+The Copilot diagrams above retain their existing hook/account paths; Claude does
+not use the Copilot account runtime or lifecycle hooks. A separate
+`ClaudeAccountController` uses the official CLI's login/status commands, never
+stored credentials or private quota APIs. Desktop collection is removed; legacy
+archive identities and exact-owned settings cleanup remain compatible.
+Separate approved start/end hooks update observed session visibility through the
+authenticated bridge without changing numeric usage or archive schemas.
+Working activity and attention remain unavailable. Synthetic app
+checks and one temporary real CLI session do not certify installed-client support.
+
 | Component | Where | Role |
 | --- | --- | --- |
 | **Tokenotch app** | [`sources/App`](../sources/App), [`sources/Notch`](../sources/Notch), [`sources/Settings`](../sources/Settings) | The menu-bar/notch app, which provides the UI, settings, history controller and setup flows. |
@@ -370,8 +390,9 @@ sequenceDiagram
 Tokenotch makes two other network requests, and both are optional:
 
 - a GitHub Status check (`githubstatus.com`), if enabled;
-- **Check for Updates** (`api.github.com/.../releases/latest`), only when you
-  select it.
+- **Check for Updates** (`api.github.com/.../releases/latest`), when you select
+  it, or daily while the macOS app is open if you explicitly enable daily checks.
+  Notification consent and quiet-time preferences apply to update banners.
 
 See [Network](tokenotch-privacy.md#network).
 

@@ -604,7 +604,9 @@ test('consented expired or replaced request is not applied', async t => {
 
 test('nonce mismatch, wrong command operation, invalid URI and freshness are rejected', async t => {
   const f = await fixture(t);
-  await f.write();
+  const now = Date.now();
+  f.companion.now = () => now;
+  await f.write(request({ expiresAt: Math.floor(now / 1000) + 600 }));
   assert.equal((await f.companion.run({ uri: uri('2'.repeat(64)) })).message, MESSAGES.nonce);
   await assert.rejects(fs.access(path.join(f.root, FILES.result)));
   assert.equal((await f.companion.run({ operation: 'remove' })).message, MESSAGES.request);
@@ -612,12 +614,12 @@ test('nonce mismatch, wrong command operation, invalid URI and freshness are rej
     { scheme: 'vscode-insiders' }, { authority: 'other.extension' }, { path: '/other' },
     { fragment: 'extra' }, { query: `nonce=${NONCE}&endpoint=secret` }, { query: `nonce=${NONCE}&nonce=${NONCE}` }
   ]) assert.throws(() => uriNonce({ ...uri(), ...change }));
-  for (const expiresAt of [Math.floor(Date.now() / 1000) - 1, Math.floor(Date.now() / 1000) + 601]) {
+  for (const expiresAt of [Math.floor(now / 1000) - 1, Math.floor(now / 1000) + 601]) {
     await f.write(request({ expiresAt }));
     assert.equal((await f.companion.run()).message, MESSAGES.expired);
   }
-  await f.write();
-  await fs.utimes(path.join(f.root, FILES.request), new Date(), new Date(Date.now() - 601000));
+  await f.write(request({ expiresAt: Math.floor(now / 1000) + 600 }));
+  await fs.utimes(path.join(f.root, FILES.request), new Date(now), new Date(now - 601000));
   assert.equal((await f.companion.run()).message, MESSAGES.expired);
   assert.equal(f.fake.updates.length, 0);
 });

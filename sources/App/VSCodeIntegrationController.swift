@@ -41,6 +41,7 @@ final class VSCodeIntegrationController: ObservableObject {
     @Published private(set) var ready = false
     @Published private(set) var busy = false
     @Published private(set) var lastObservation: [UsageSource: Date] = [:]
+    @Published private(set) var lastRejectedObservation: [UsageSource: Date] = [:]
     @Published private(set) var accepted: [UsageSource: Int] = [:]
     @Published private(set) var rejected = 0
     @Published private(set) var excluded = 0
@@ -154,6 +155,7 @@ final class VSCodeIntegrationController: ObservableObject {
 
     func clearObservations() {
         lastObservation = [:]
+        lastRejectedObservation = [:]
         accepted = [:]
         rejected = 0
         excluded = 0
@@ -221,6 +223,7 @@ final class VSCodeIntegrationController: ObservableObject {
             configuration = nil
             accepted = [:]
             lastObservation = [:]
+            lastRejectedObservation = [:]
         } catch { fail(error) }
     }
 
@@ -407,6 +410,7 @@ final class VSCodeIntegrationController: ObservableObject {
                         if batch.rejected == 0 { self.receiverError = nil }
                     }
                     if batch.rejected > 0 {
+                        self.lastRejectedObservation[source] = Date()
                         self.receiverError = TelemetryError.invalid.rawValue
                         self.onCoverageGap?([source])
                     }

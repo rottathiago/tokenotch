@@ -247,10 +247,16 @@ separate telemetry, not a promise of lifecycle or attention parity.
 
 ## Updates and support
 
-**Check for Updates** contacts GitHub only when selected and offers the official
-release page when a newer public stable version exists. Nothing is downloaded or
-installed automatically. Quit Tokenotch, replace the app in Applications, reopen,
-and follow any Connections repair/reload instructions.
+**Check for Updates** contacts GitHub and offers the official release page when a
+newer public stable version exists. In macOS 1.1.0 or later, **Settings > About >
+Check for updates daily** optionally checks once a day while Tokenotch is open.
+It is off by default. New releases appear in the menu bar; optional banners
+follow Notifications settings, macOS permission, managed mute, snooze and quiet
+hours. A release is announced at most once across app restarts.
+
+Nothing is downloaded or installed automatically. Quit Tokenotch, replace the app
+in Applications, reopen, and follow any Connections repair/reload instructions.
+Version 1.0.0 only checks manually and cannot receive a pushed update notice.
 
 For troubleshooting, use **Settings > Privacy > Diagnostics** and review the
 report before sharing it. Never post prompts, credentials, transcripts, or

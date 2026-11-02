@@ -157,7 +157,7 @@ enum SourceHistoryChecks {
             try require(try rows(root, "SELECT DISTINCT source FROM usage") == [["cli"]], "Legacy rows not explicit CLI")
             try require(try rows(root, "SELECT value FROM metadata WHERE key='fixture_provenance'") == [["untouched"]],
                         "Unrelated metadata changed")
-            try require(try rows(root, "PRAGMA user_version") == [["6"]], "Schema did not reach six")
+            try require(try rows(root, "PRAGMA user_version") == [["7"]], "Schema did not reach seven")
             for source in [UsageSource.vscodeLocal, .vscodeCopilot] {
                 let empty = try store!.query(interval, source: source)
                 try require(empty.totals.calls == 0 && empty.days.isEmpty && empty.models.isEmpty,
@@ -201,7 +201,7 @@ enum SourceHistoryChecks {
         let root = root()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try UsageHistoryStore(root: root, zone: zone, now: now)
-        for source in UsageSource.allCases {
+        for source in UsageSource.copilotCases {
             try store.record([
                 event("shared-\(source.rawValue)", source: source, reported: true, writeReported: true, first: 10, duration: 20),
                 event("absent-\(source.rawValue)", source: source, model: "other", reported: false, writeReported: false),
@@ -210,7 +210,7 @@ enum SourceHistoryChecks {
         }
         let interval = store.clock.interval(.today, selected: now, now: now)
         let all = try store.query(interval)
-        let parts = try UsageSource.allCases.map { try store.query(interval, source: $0) }
+        let parts = try UsageSource.copilotCases.map { try store.query(interval, source: $0) }
         try requireSum(all.totals, parts.map(\.totals))
         try require(all.totals.calls == 9 && all.models.count == 3
             && all.totals.cacheCoverage.unknownCalls == 3 && all.totals.cacheUnreportedCalls == 3
@@ -219,14 +219,14 @@ enum SourceHistoryChecks {
             "Missing optional counters became reported zeros")
         for model in all.models {
             try requireSum(model.tokens, parts.flatMap(\.models).filter { $0.id == model.id }.map(\.tokens))
-            for source in UsageSource.allCases {
+            for source in UsageSource.copilotCases {
                 let filtered = try store.query(interval, model: model.id, source: source)
                 try require(filtered.totals == filtered.models.first { $0.id == model.id }?.tokens,
                             "Combined model/source filter failed")
             }
         }
         let hourly = try store.hourlyTimeline(now: now)
-        let hourlyParts = try UsageSource.allCases.map { try store.hourlyTimeline(now: now, source: $0) }
+        let hourlyParts = try UsageSource.copilotCases.map { try store.hourlyTimeline(now: now, source: $0) }
         try require(hourly.total == all.totals.total && hourly.calls == all.totals.calls, "Hourly/daily source sums differ")
         for index in hourly.buckets.indices {
             try require(hourly.buckets[index].tokens == hourlyParts.reduce(0) { $0 + $1.buckets[index].tokens }
@@ -234,7 +234,7 @@ enum SourceHistoryChecks {
                 "All-source hourly buckets differ from source sums")
         }
         for index in 0..<105 {
-            try store.record([event("bounded-\(index)", source: UsageSource.allCases[index % 3], model: "model-\(index)")], now: now)
+            try store.record([event("bounded-\(index)", source: UsageSource.copilotCases[index % 3], model: "model-\(index)")], now: now)
         }
         let bounded = try store.query(interval)
         try require(bounded.models.count == 101 && bounded.models.contains { $0.id == "*" }
@@ -257,7 +257,7 @@ enum SourceHistoryChecks {
         let canonical = event("canonical", at: later, session: "different-live-envelope")
         try require(try store!.record([canonical], now: later, importing: true) == 0,
                     "Timestamp/session envelope changed canonical receipt")
-        try store!.heartbeat(from: later, to: later, active: false, sources: Set(UsageSource.allCases))
+        try store!.heartbeat(from: later, to: later, active: false, sources: Set(UsageSource.copilotCases))
         let key = try rows(root, "SELECT value FROM metadata WHERE key='receipt_key'")
         let receipts = try rows(root, "SELECT id FROM durable_receipts ORDER BY id")
         let bytes = try Data(contentsOf: root.appendingPathComponent("history/usage.sqlite"))
@@ -398,7 +398,7 @@ enum SourceHistoryChecks {
             && seconds(.vscodeCopilot) == 51.25, "Restart/fractional union lost checkpoint positions")
         let hourly = try store!.hourlyTimeline(now: now.addingTimeInterval(154))
         try require(hourly.buckets[12].recordingSeconds == 152, "Hourly union disagrees with daily union")
-        try beat(3600, 3630, Set(UsageSource.allCases))
+        try beat(3600, 3630, Set(UsageSource.copilotCases))
         try require(try seconds() == 182, "Simultaneous opportunity counted once per source")
         let midnight = store!.clock.addingDays(1, to: day.start)
         try store!.heartbeat(from: midnight.addingTimeInterval(-10), to: midnight.addingTimeInterval(20),

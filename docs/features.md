@@ -23,9 +23,49 @@ Windows 1.0.0 is available as an
 [unsigned public release](releases/1.0.0-windows.md) for x64 and ARM64.
 Publication and passing CI do not certify all real-client or desktop behavior.
 
+## Experimental Claude Code metrics
+
+This macOS implementation adds explicit local CLI setup, an independent
+authenticated logs receiver, and Claude's own monochrome notch cell and card.
+Claude has a neutral quota outline: no subscription percentage, context,
+lifecycle, attention or completion notifications are inferred from API calls.
+Only the local Claude Code CLI is collected. Other clients and remote sessions
+are excluded; Desktop setup and marker controls have been removed. Existing
+archives remain readable without relabeling historical observations.
+
+Separate **session tracking** consent adds start/end hooks. Observed open CLI
+sessions stay visible while idle and disappear when their end event arrives,
+without deleting usage totals. Response completion does not close a session.
+Restart or resume sessions after enabling; force-quitting or missing hooks can
+prevent delivery. Real-client start/end acceptance is pending.
+
+Optional **Claude account sign-in** uses the official CLI's browser login and
+sanitized authentication status. Quota collection is separate: eligible CLI
+status-line reports supply 5-hour and 7-day usage/reset windows, not a private
+account API or automatic historical usage import.
+
+Usage, History and Sessions have provider/client selection. All-provider model
+rows retain provider identity, and History shows separately labeled provider
+charts. Optional reported cost is labeled **estimated cost**, with missing-field
+coverage rather than an assumed zero. History and numeric session timelines
+require independent Claude consent. Hiding a cell does not stop collection;
+disconnect retains saved observations. Confirmed provider-scoped usage deletion
+includes cost aggregates and that archive's receipts; saved timelines have a
+separate deletion operation.
+
+Setup preserves unrelated settings and hooks, refuses conflicting telemetry,
+opt-outs and visible managed policy, and asks users to review Claude `/status`.
+Only unchanged inserted settings are removed; user edits survive with a cleanup
+warning. Synthetic tests cover setup, routing, replay, restart/retry, independent
+removal and native cells. One temporary real CLI check on 2.1.212 is not a version
+floor or installed-app/release certification. See the
+[Claude contract and remaining gates](claude-code-contract.md).
+
 ## What works in this implementation
 
-- Copilot-only native quota ring, usage/session hover card, menu bar and Settings.
+- Provider-scoped native notch cells and usage cards; Copilot retains its quota
+  ring and lifecycle card. Claude CLI has experimental metrics-only support as
+  described below. Menu bar and shared Settings remain native.
   Idle auto-hide, hover-to-reveal, four edges, display selection, scaling, Option-drag positioning
   and full-screen hiding. Transparent corners pass clicks through.
   **Hide notch for full-screen apps** also dismisses the detail card and rechecks
@@ -57,7 +97,8 @@ Publication and passing CI do not certify all real-client or desktop behavior.
   solid dash zero tokens during recorded coverage. Future hours are not displayed.
   A small marker identifies the current, unfinished hour/day. Heights use a
   zero-based linear scale relative to the selected period's maximum, not cost
-  or allowance. The collapsed notch is unchanged.
+  or allowance.   The single-Copilot collapsed notch is unchanged; a two-provider notch keeps
+  separately identifiable marks rather than sharing a quota reading.
   **Settings → General → Charts → Time format** selects **12-hour**
   (with AM/PM) or **24-hour** labels, hover/VoiceOver times and hourly coverage
   notes. The choice is saved and applies without restarting; existing installs
@@ -73,6 +114,10 @@ Publication and passing CI do not certify all real-client or desktop behavior.
   click. **Settings → General → Collapse when idle** controls
   this behavior; turn it off to keep the ring visible. **Show notch**
   turns the entire notch on or off, independently of full-screen hiding.
+  **Settings → Connections → Notch providers** lets you show GitHub Copilot,
+  Claude Code, or both. Turn both off to hide the notch. These choices are saved
+  and apply immediately without disconnecting clients or pausing recording.
+  Claude Code appears after setup or when saved usage is available.
   A blue dot indicates observed work. Session status uses blue (working),
   violet (stopped), amber (warning), coral (error) and gray (idle/unknown),
   paired with distinct symbols and text. The ring still shows

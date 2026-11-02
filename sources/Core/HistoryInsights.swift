@@ -89,8 +89,10 @@ public struct HistoryInsightComparison: Identifiable, Sendable {
         if currentDays != 7 || previousDays != 7 {
             common.append("Observed calls on \(currentDays)/7 vs \(previousDays)/7 days; all fourteen days are required.")
         }
-        if max(current.began, previous.began) > periods.1.start {
-            common.append("Collection began within the comparison window.")
+        if let a = current.comparisonBegan, let b = previous.comparisonBegan {
+            if max(a, b) > periods.1.start { common.append("Collection began within the comparison window.") }
+        } else {
+            common.append("Recording baseline unavailable for some sources.")
         }
         if (current.days + previous.days).contains(where: \.gap) {
             common.append("Known recording gaps in the comparison window.")

@@ -65,18 +65,24 @@ enum NotchLayout {
         value.isFinite ? min(max(value, 0.75), 1.5) : 1
     }
 
-    static func size(edge: NotchEdge, scale: CGFloat) -> CGSize {
+    static func cellStride(edge: NotchEdge) -> CGFloat {
+        (edge.isVertical ? cellHeight : ringDiameter) + Design.px(42)
+    }
+
+    static func size(edge: NotchEdge, scale: CGFloat, providerCount: Int = 1) -> CGSize {
         let length = 2 * curlRadius + padStart + padEnd
             + (edge.isVertical ? cellHeight : ringDiameter)
+            + CGFloat(max(0, providerCount - 1)) * cellStride(edge: edge)
         let depth = bodyDepth + (edge.isVertical ? 0 : ringLabelGap + labelHeight)
         return CGSize(width: (edge.isVertical ? depth : length) * scale,
                       height: (edge.isVertical ? length : depth) * scale)
     }
 
-    static func badgeRect(in bounds: CGRect, edge: NotchEdge, scale: CGFloat, collapsed: Bool) -> CGRect {
+    static func badgeRect(in bounds: CGRect, edge: NotchEdge, scale: CGFloat, collapsed: Bool,
+                          providerCount: Int = 1) -> CGRect {
         guard collapsed else { return bounds }
         let depth = pillWidth * scale
-        let length = pillHeight * scale
+        let length = pillHeight * scale * CGFloat(max(1, providerCount))
         switch edge {
         case .right:
             return CGRect(x: bounds.maxX - depth, y: bounds.midY - length / 2, width: depth, height: length)
@@ -90,12 +96,13 @@ enum NotchLayout {
     }
 
     // SwiftUI coordinates; the percentage is always below the ring, on every edge.
-    static func ringCenter(in size: CGSize, edge: NotchEdge, scale: CGFloat) -> CGPoint {
+    static func ringCenter(in size: CGSize, edge: NotchEdge, scale: CGFloat, index: Int = 0) -> CGPoint {
+        let offset = CGFloat(index) * cellStride(edge: edge) * scale
         if edge.isVertical {
             return CGPoint(x: size.width / 2,
-                           y: (curlRadius + padStart + ringDiameter / 2) * scale)
+                           y: (curlRadius + padStart + ringDiameter / 2) * scale + offset)
         }
-        return CGPoint(x: (curlRadius + padStart + ringDiameter / 2) * scale,
+        return CGPoint(x: (curlRadius + padStart + ringDiameter / 2) * scale + offset,
                        y: (bodyDepth / 2) * scale)
     }
 }

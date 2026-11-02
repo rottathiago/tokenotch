@@ -191,6 +191,8 @@ enum HistoryChecks {
             let start = calendar.calendar.startOfDay(for: now)
             let store = try UsageHistoryStore(root: root, zone: calendar.calendar.timeZone,
                                              now: began ?? calendar.addingDays(-14, to: start))
+            let consent = began ?? calendar.addingDays(-14, to: start)
+            try store.heartbeat(from: consent, to: consent, active: true)
             for offset in -14...0 where offset != missing {
                 let date = calendar.addingDays(offset, to: start).addingTimeInterval(3600)
                 let count: Int64 = offset == 0 ? 1_000 : offset < -7 ? (zeroBaseline ? 0 : 10) : 20

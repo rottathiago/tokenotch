@@ -17,6 +17,7 @@ public struct HookInstallation {
     }
 
     public func configuration(_ client: Client, helper: URL) throws -> Data {
+        guard client.provider == .copilot else { throw TokenotchError.unavailable }
         let names = client == .cli
             ? ["sessionStart", "userPromptSubmitted", "agentStop", "sessionEnd", "notification", "errorOccurred"]
             : ["SessionStart", "UserPromptSubmit", "Stop"]
@@ -35,6 +36,7 @@ public struct HookInstallation {
     }
 
     public func install(_ client: Client, bundledHelper: URL, usageExtension: Data? = nil) throws {
+        guard client.provider == .copilot else { throw TokenotchError.unavailable }
         try PrivateFiles.directory(root)
         let hook = hookURL(client)
         // Do not chmod existing client directories or follow symlinked configuration roots.
@@ -74,6 +76,7 @@ public struct HookInstallation {
     }
 
     public func isInstalled(_ client: Client, expectedUsageExtension: Data? = nil) throws -> Bool {
+        guard client.provider == .copilot else { throw TokenotchError.unavailable }
         guard try PrivateFiles.read(root.appendingPathComponent("\(client.rawValue).registration")) != nil else { return false }
         guard FileManager.default.isExecutableFile(atPath: root.appendingPathComponent("TokenotchHook").path),
               let receipt = try PrivateFiles.read(root.appendingPathComponent("\(client.rawValue).receipt")),
@@ -90,6 +93,7 @@ public struct HookInstallation {
     }
 
     public func uninstall(_ client: Client) throws {
+        guard client.provider == .copilot else { throw TokenotchError.unavailable }
         try PrivateFiles.directory(root)
         let hook = hookURL(client)
         let receipt = root.appendingPathComponent("\(client.rawValue).receipt")

@@ -11,6 +11,16 @@ enum TokenotchHook {
             guard args.count == 3, let client = Client(rawValue: args[1]) else { throw TokenotchError.invalidEvent }
             let data = try LocalBridge.readMessage(STDIN_FILENO, limit: HookNormalizer.inputLimit,
                                                    milliseconds: 500, newlineTerminated: false)
+            if client == .claudeCLI, args[2] == "statusLine" {
+                let snapshot = try ClaudeStatusLineSnapshot.parse(data)
+                print(snapshot.terminalSummary)
+                try LocalBridge.send(snapshot)
+                return
+            }
+            if client == .claudeCLI, ["SessionStart", "SessionEnd"].contains(args[2]) {
+                if let event = try ClaudeSessionEvent.parse(data, hook: args[2]) { try LocalBridge.send(event) }
+                return
+            }
             guard let event = try HookNormalizer.normalizeObservation(data, source: client, hook: args[2]) else { return }
             try LocalBridge.send(event)
         } catch {

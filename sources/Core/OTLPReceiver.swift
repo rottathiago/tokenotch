@@ -29,7 +29,8 @@ public struct OTLPRequest {
     public let signal: String
     public let body: Data
 
-    public static func parse(_ data: Data, configuration: TelemetryConfiguration) throws -> Self? {
+    public static func parse(_ data: Data, configuration: TelemetryConfiguration,
+                             provider: UsageProvider = .copilot) throws -> Self? {
         guard data.count <= CopilotOTelNormalizer.bodyLimit + 16_384 else { throw TelemetryError.capacity }
         guard let boundary = data.range(of: Data("\r\n\r\n".utf8)) else {
             guard data.count <= 16_384 else { throw TelemetryError.capacity }
@@ -43,7 +44,8 @@ public struct OTLPRequest {
         guard words.count == 3, words[0] == "POST", words[2] == "HTTP/1.1" else { throw TelemetryError.unsupported }
         let path = words[1].split(separator: "/", omittingEmptySubsequences: false)
         guard path.count >= 3, path[0].isEmpty, path[1] == configuration.token,
-              let source = UsageSource(rawValue: String(path[2])), source != .cli else {
+              let source = UsageSource(rawValue: String(path[2])), source.provider == provider, source != .cli,
+              UsageSource.activeCases.contains(source) else {
             throw TelemetryError.unauthorized
         }
         // Agent Host can send both traces and metrics to the configured non-root URL.
@@ -142,8 +144,9 @@ public final class OTLPReceiver {
     private var listener: NWListener?
     private var connections: [UUID: NWConnection] = [:]
     private var epoch = UUID()
+    private let provider: UsageProvider
 
-    public init() {}
+    public init(provider: UsageProvider = .copilot) { self.provider = provider }
 
     public func start(_ configuration: TelemetryConfiguration) throws {
         try configuration.validate()
@@ -207,19 +210,29 @@ public final class OTLPReceiver {
             var data = accumulated
             if let bytes { data.append(bytes) }
             do {
-                if let request = try OTLPRequest.parse(data, configuration: configuration) {
-                    if request.signal != "traces" {
+                if let request = try OTLPRequest.parse(data, configuration: configuration, provider: self.provider) {
+                    if request.signal != (self.provider == .copilot ? "traces" : "logs") {
                         self.respond(id, code: 200, body: "{}")
                         return
                     }
-                    let batch = try CopilotOTelNormalizer.decode(request.body, source: request.source)
+                    var batch = try self.provider == .copilot
+                        ? CopilotOTelNormalizer.decode(request.body, source: request.source)
+                        : ClaudeCodeOTelNormalizer.decode(request.body)
+                    if self.provider == .claudeCode {
+                        let mismatched = batch.events.filter { $0.usageSource != request.source }.count
+                        batch.events.removeAll { $0.usageSource != request.source }
+                        batch.rejected += mismatched
+                        batch.unattributed += mismatched
+                    }
+                    let result = batch
                     guard let receive = self.onBatch else { throw TelemetryError.unavailable }
-                    receive(request.source, batch) { [weak self] accepted in
+                    receive(request.source, result) { [weak self] accepted in
                         guard let self else { return }
                         self.queue.async {
                             if !accepted { self.respond(id, code: 503, body: "{}"); return }
-                            let body = batch.rejected == 0 ? "{}" :
-                                "{\"partialSuccess\":{\"rejectedSpans\":\"\(batch.rejected)\",\"errorMessage\":\"Unsupported usage observations\"}}"
+                            let rejectedField = self.provider == .copilot ? "rejectedSpans" : "rejectedLogRecords"
+                            let body = result.rejected == 0 ? "{}" :
+                                "{\"partialSuccess\":{\"\(rejectedField)\":\"\(result.rejected)\",\"errorMessage\":\"Unsupported usage observations\"}}"
                             self.respond(id, code: 200, body: body)
                         }
                     }

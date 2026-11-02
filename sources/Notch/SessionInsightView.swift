@@ -15,6 +15,9 @@ struct SessionContextMeter: View {
 
     var details: String {
         guard let context else {
+            if source == .claudeCLI {
+                return "Context not reported. Enable quota and context in Claude Connections, then wait for a status-line update. No context size is assumed."
+            }
             return source == .cli
                 ? "Context not reported. Waiting for a current CLI reading; no usage or model limit is assumed."
                 : "Context not reported. VS Code telemetry does not expose context-window occupancy."

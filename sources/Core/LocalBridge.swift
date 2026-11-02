@@ -47,7 +47,9 @@ public enum PrivateFiles {
 
 private struct Envelope: Codable {
     let registration: String
-    let event: ActivityEvent
+    var event: ActivityEvent?
+    var claudeStatusLine: ClaudeStatusLineSnapshot?
+    var claudeSession: ClaudeSessionEvent?
 }
 
 public final class LocalBridge {
@@ -59,6 +61,8 @@ public final class LocalBridge {
     private var bucketStart = Date.distantPast
     private var bucketCount = 0
     public var onEvent: ((ActivityEvent) -> Void)?
+    public var onClaudeStatusLine: ((ClaudeStatusLineSnapshot) -> Void)?
+    public var onClaudeSession: ((ClaudeSessionEvent) -> Void)?
     public var onFailure: ((TokenotchError) -> Void)?
     public init(root: URL = PrivateFiles.root) { self.root = root }
 
@@ -132,14 +136,28 @@ public final class LocalBridge {
                 guard getpeereid(fd, &uid, &gid) == 0, uid == getuid() else { throw TokenotchError.unsafePath }
                 let data = try Self.readMessage(fd, limit: 4096, milliseconds: 100)
                 let envelope = try JSONDecoder().decode(Envelope.self, from: data)
-                guard envelope.event.metricSource == nil else { throw TokenotchError.invalidEvent }
-                let registration = root.appendingPathComponent("\(envelope.event.source.rawValue).registration")
+                guard [envelope.event != nil, envelope.claudeStatusLine != nil, envelope.claudeSession != nil]
+                    .filter({ $0 }).count == 1 else {
+                    throw TokenotchError.invalidEvent
+                }
+                let client = envelope.event?.source ?? .claudeCLI
+                let name = envelope.claudeSession == nil ? client.rawValue : "claudeSessions"
+                let registration = root.appendingPathComponent("\(name).registration")
                 guard let key = try PrivateFiles.read(registration, limit: 128),
                       String(data: key, encoding: .utf8) == envelope.registration else {
                     throw TokenotchError.invalidEvent
                 }
-                try envelope.event.validate(now: now)
-                onEvent?(envelope.event)
+                if let event = envelope.event {
+                    guard event.metricSource == nil else { throw TokenotchError.invalidEvent }
+                    try event.validate(now: now)
+                    onEvent?(event)
+                } else if let snapshot = envelope.claudeStatusLine {
+                    try snapshot.validate(now: now)
+                    onClaudeStatusLine?(snapshot)
+                } else if let event = envelope.claudeSession {
+                    try event.validate(now: now)
+                    onClaudeSession?(event)
+                }
             } catch let error as TokenotchError {
                 onFailure?(error)
             } catch {
@@ -149,11 +167,23 @@ public final class LocalBridge {
     }
 
     public static func send(_ event: ActivityEvent, root: URL = PrivateFiles.root) throws {
+        try send(registration: event.source.rawValue, root: root) { Envelope(registration: $0, event: event) }
+    }
+
+    public static func send(_ snapshot: ClaudeStatusLineSnapshot, root: URL = PrivateFiles.root) throws {
+        try send(registration: Client.claudeCLI.rawValue, root: root) { Envelope(registration: $0, claudeStatusLine: snapshot) }
+    }
+
+    public static func send(_ event: ClaudeSessionEvent, root: URL = PrivateFiles.root) throws {
+        try send(registration: "claudeSessions", root: root) { Envelope(registration: $0, claudeSession: event) }
+    }
+
+    private static func send(registration name: String, root: URL, envelope: (String) -> Envelope) throws {
         try PrivateFiles.directory(root)
-        let registration = root.appendingPathComponent("\(event.source.rawValue).registration")
+        let registration = root.appendingPathComponent("\(name).registration")
         guard let key = try PrivateFiles.read(registration, limit: 128),
               let token = String(data: key, encoding: .utf8) else { throw TokenotchError.bridgeUnavailable }
-        var data = try JSONEncoder().encode(Envelope(registration: token, event: event))
+        var data = try JSONEncoder().encode(envelope(token))
         data.append(10)
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw TokenotchError.bridgeUnavailable }

@@ -3,9 +3,39 @@ import Foundation
 
 public enum Client: String, Codable, CaseIterable, Identifiable, Sendable {
     case cli, vscode
+    case claudeCLI
+    case claudeDesktop // Retained only for decoding saved observations.
+    public static let copilotCases: [Self] = [.cli, .vscode]
+    public static let activeCases: [Self] = [.cli, .vscode, .claudeCLI]
     public var id: String { rawValue }
-    public var title: String { self == .cli ? "Copilot CLI" : "VS Code (Preview)" }
-    public var bundleID: String { self == .cli ? "com.apple.Terminal" : "com.microsoft.VSCode" }
+    public var provider: UsageProvider {
+        switch self {
+        case .cli, .vscode: return .copilot
+        case .claudeCLI, .claudeDesktop: return .claudeCode
+        }
+    }
+    public var surface: ClientSurface {
+        switch self {
+        case .cli, .claudeCLI: return .cli
+        case .vscode: return .editor
+        case .claudeDesktop: return .desktop
+        }
+    }
+    public var title: String {
+        switch self {
+        case .cli: return "Copilot CLI"
+        case .vscode: return "VS Code (Preview)"
+        case .claudeCLI: return "Claude Code CLI"
+        case .claudeDesktop: return "Claude (retired source)"
+        }
+    }
+    public var bundleID: String {
+        switch self {
+        case .cli, .claudeCLI: return "com.apple.Terminal"
+        case .vscode: return "com.microsoft.VSCode"
+        case .claudeDesktop: return ""
+        }
+    }
 }
 
 public enum EventKind: String, Codable, Sendable {
@@ -44,6 +74,7 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
     public let metricSource: UsageSource?
     public let metricSessionReported: Bool?
     public var usageSource: UsageSource { metricSource ?? .cli }
+    public var provider: UsageProvider { usageSource.provider }
     public var id: String {
         Self.digest("\(source.rawValue):\(session):\(kind.rawValue):\(tokens?.callID ?? metricID ?? ""):\(timestamp.timeIntervalSince1970)")
     }
@@ -52,7 +83,8 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
                 tokens: TokenUsage? = nil, context: ContextUsage? = nil,
                 compaction: CompactionUsage? = nil, metricID: String? = nil,
                 metricSource: UsageSource? = nil, metricSessionReported: Bool? = nil) {
-        version = metricSource != nil ? 4 : (kind.isAttention ? 3 : (kind == .compaction || kind == .contextInvalidated || kind.isActivitySnapshot ? 2 : 1))
+        version = metricSource?.provider == .claudeCode ? 5 :
+            (metricSource != nil ? 4 : (kind.isAttention ? 3 : (kind == .compaction || kind == .contextInvalidated || kind.isActivitySnapshot ? 2 : 1)))
         self.source = source
         self.session = session
         self.kind = kind
@@ -75,13 +107,23 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
     }
 
     public func validatePayload() throws {
-        guard (1...4).contains(version), session.count == 64,
+        guard (1...5).contains(version), session.count == 64,
               session.allSatisfy({ "0123456789abcdef".contains($0) }),
               timestamp.timeIntervalSince1970.isFinite else { throw TokenotchError.invalidEvent }
-        guard (version == 4) == (metricSource != nil),
-              metricSource != nil || metricSessionReported == nil,
-              metricSource == nil || (source == .vscode && kind == .usage && metricSource != .cli)
-        else { throw TokenotchError.invalidEvent }
+        if version == 5 {
+            guard let metricSource, metricSource.provider == .claudeCode,
+                  source == metricSource.client, kind == .usage,
+                  metricSessionReported != nil, metricID == nil,
+                  tokens?.cacheInputReported != nil, tokens?.cacheWriteReported != nil else {
+                throw TokenotchError.invalidEvent
+            }
+        } else {
+            guard source.provider == .copilot, (version == 4) == (metricSource != nil),
+                  metricSource != nil || metricSessionReported == nil,
+                  metricSource == nil || (source == .vscode && kind == .usage &&
+                    metricSource?.provider == .copilot && metricSource != .cli),
+                  tokens?.estimatedCostMicros == nil else { throw TokenotchError.invalidEvent }
+        }
         guard (version == 3) == kind.isAttention,
               !kind.isAttention || source == .cli else { throw TokenotchError.invalidEvent }
         if kind.isActivitySnapshot {
@@ -134,7 +176,7 @@ public enum HookNormalizer {
     /// A nil observation is a valid filtered hook, not a delivery failure.
     public static func normalizeObservation(_ data: Data, source: Client, hook: String,
                                             now: Date = Date()) throws -> ActivityEvent? {
-        guard data.count <= inputLimit,
+        guard source.provider == .copilot, data.count <= inputLimit,
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw TokenotchError.invalidEvent
         }

@@ -20,3 +20,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+The Claude glyph in sources/Notch/ClaudeGlyph.swift is adapted from Simple Icons:
+https://github.com/simple-icons/simple-icons/blob/develop/icons/claude.svg
+Simple Icons dedicates its icon collection to the public domain under CC0 1.0:
+https://creativecommons.org/publicdomain/zero/1.0/
+Claude is a trademark of Anthropic. CC0 does not grant trademark rights.
+Use of the mark identifies the connected provider and implies no endorsement.

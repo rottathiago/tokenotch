@@ -127,9 +127,49 @@ enum NotificationDeliveryChecks {
             preferences: preferences, now: Date(), managedMute: true) == nil,
             "Managed mute must suppress sound and all other delivery")
 
+        preferences.desktop = true
+        preferences.categories.insert(.update)
+        model.options.notifications = preferences
+        sounds = 0; expansions = 0; requests = []
+        postingWorks = true
+        model.deliver(Notice(id: "update:v1.1.0", category: .update,
+                            title: "Update available", body: "Open Updates"))
+        settle()
+        try NotchChecks.require(requests.count == 1 && sounds == 1 && expansions == 0
+                               && requests[0].content.userInfo["releaseUpdate"] as? Bool == true,
+                               "Update banners must route to Updates, without expanding a session card")
+        var detailsOpened = 0
+        model.openNotificationDetails = { detailsOpened += 1 }
+        model.routeNotification(requests[0].content.userInfo)
+        try NotchChecks.require(model.settingsTab == .about && detailsOpened == 1,
+                               "Clicking an update notification must open About, not session details")
+        for mode in 0..<4 {
+            var muted = preferences
+            switch mode {
+            case 0: muted.enabled = false
+            case 1: muted.categories.remove(.update)
+            case 2: muted.snoozedUntil = Date().addingTimeInterval(3600)
+            default:
+                muted.quietEnabled = true
+                muted.quietStart = 0
+                muted.quietEnd = 0
+            }
+            model.options.notifications = muted
+            sounds = 0; requests = []
+            model.deliver(Notice(id: "muted-update-\(mode)", category: .update,
+                                title: "Update available", body: "Open Updates"))
+            settle()
+            try NotchChecks.require(sounds == 0 && requests.isEmpty,
+                                   "Update alerts must respect notification consent, categories, snooze and quiet hours")
+        }
+        try NotchChecks.require(ledger.evaluate(Notice(id: "managed-update", category: .update, title: "", body: ""),
+            preferences: preferences, now: Date(), managedMute: true) == nil,
+            "Managed mute must suppress update alerts")
+
         guard let chime = NSSound(named: "Glass") else {
             throw NotchCheckFailure.failed("The notification chime must be available")
         }
+        preferences.desktop = false
         let volume = chime.volume
         chime.volume = 0
         defer { chime.stop(); chime.volume = volume }

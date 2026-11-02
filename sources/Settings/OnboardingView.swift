@@ -85,27 +85,27 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Visibility into your AI coding usage and patterns").font(.headline)
             Text("Track token consumption and model usage across your coding sessions. Run multiple coding agents at once and know when a session needs your action or attention.")
-            Label("Connect Copilot CLI or Visual Studio Code on this Mac.", systemImage: "point.3.connected.trianglepath.dotted")
+            Label("Connect Copilot CLI, Visual Studio Code or experimental Claude Code CLI metrics.", systemImage: "point.3.connected.trianglepath.dotted")
             Label("Prompts, responses and code are not saved.", systemImage: "lock.shield")
             Label("Notifications, saved history and account sign-in are your choice.", systemImage: "slider.horizontal.3")
             Text("We'll configure at least one client together. You can pause and come back to the same step.")
-            Text("Move Tokenotch to Applications before connecting. Tokenotch sends no analytics and makes no automatic update checks. A stopped turn is not proof a task succeeded; local token observations are not your bill.")
+            Text("Move Tokenotch to Applications before connecting. Tokenotch sends no analytics. Daily update checks are off until you enable them in About. A stopped turn is not proof a task succeeded; local token observations are not your bill.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }
 
     private var connections: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Choose a client to set up. One configured client is enough; you can connect both.")
-            HStack {
-                ForEach(Client.allCases) { client in
+            Text("Choose a client to set up. One configured client is enough; other clients can be added later.")
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                ForEach(OnboardingProgress.supportedClients) { client in
                     Button { model.selectOnboardingClient(client) } label: {
                         HStack {
-                            Label(client == .cli ? "Copilot CLI" : "Visual Studio Code", systemImage: client.symbol)
+                            Label(client == .vscode ? "Visual Studio Code" : client.title, systemImage: client.symbol)
                             if model.onboarding.activeClient == client {
                                 Image(systemName: "checkmark").accessibilityHidden(true)
                             }
-                        }.frame(maxWidth: .infinity)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.bordered)
                     .tint(model.onboarding.activeClient == client ? SettingsStyle.brand : .secondary)
@@ -118,11 +118,13 @@ struct OnboardingView: View {
             }
             if let client = model.onboarding.activeClient {
                 OnboardingConnectionStatus(model: model, client: client)
-                ConnectionSetupContent(model: model, client: client).id(client)
+                if client.provider == .claudeCode {
+                    ClaudeSetupContent(model: model, integration: model.claude).id(client)
+                } else { ConnectionSetupContent(model: model, client: client).id(client) }
                 Text("Successful configuration lets you continue. Reload the client as instructed; activity can be verified later.")
                     .font(.callout).foregroundStyle(.secondary)
             } else {
-                Text("Select Copilot CLI or Visual Studio Code above to see the next step.")
+                Text("Select a client above to see its setup and privacy choices.")
                     .foregroundStyle(.secondary)
             }
             if integration.isWorking {
@@ -146,22 +148,29 @@ struct OnboardingView: View {
 private struct OnboardingConnectionStatus: View {
     @ObservedObject var model: TokenotchModel
     @ObservedObject private var integration: VSCodeIntegrationController
+    @ObservedObject private var claude: ClaudeCodeIntegrationController
     let client: Client
 
     init(model: TokenotchModel, client: Client) {
         self.model = model
         integration = model.vscode
+        claude = model.claude
         self.client = client
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            LabeledContent(client == .cli ? "Copilot CLI" : "Visual Studio Code") {
+            LabeledContent(client == .vscode ? "Visual Studio Code" : client.title) {
                 StatusBadge(text: model.isClientConfigured(client) ? "Configured" : "Not configured",
                             symbol: model.isClientConfigured(client) ? "checkmark.circle" : "circle.dotted",
                             tone: model.isClientConfigured(client) ? .good : .neutral)
             }
-            if model.isClientConfigured(client) {
+            if client.provider == .claudeCode {
+                Text(claude.readiness(.claudeCLI).metrics.delivery(now: model.clock).rawValue)
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("Metrics only; lifecycle and attention are unavailable. CLI quota and context require a separate opt-in.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if model.isClientConfigured(client) {
                 let readiness = ConnectionReadiness.activity(installed: true, approved: true,
                     observed: model.lastActivityEvent[client], now: model.clock)
                 Label(readiness == .waiting ? "Waiting for first activity" : readiness.title, systemImage: readiness.symbol)
@@ -193,9 +202,12 @@ private struct OnboardingPreferences: View {
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
             Text("What stays on this Mac").font(.headline)
-            HistoryControls(history: model.history, showsManagement: false)
-            TimelineRecordingControls(timeline: model.timeline)
-            Text("Session notices").font(.headline)
+            ForEach(UsageProvider.allCases) { provider in
+                Text(provider.title).font(.headline)
+                HistoryControls(history: model.history, showsManagement: false, provider: provider)
+                TimelineRecordingControls(timeline: model.timeline, provider: provider)
+            }
+            Text("Copilot session notices").font(.headline)
             SessionNoticeControls(attention: model.attention, showsManagement: false)
         }
     }
@@ -220,10 +232,10 @@ private struct OnboardingResult: View {
         VStack(alignment: .leading, spacing: 14) {
             Label("Welcome to Tokenotch. Your setup is complete.", systemImage: "checkmark.circle.fill")
                 .font(.headline).foregroundStyle(SettingsStyle.good)
-            ForEach(Client.allCases) { client in
+            ForEach(OnboardingProgress.supportedClients) { client in
                 OnboardingConnectionStatus(model: model, client: client)
             }
-            Text("Reload your configured client and use Copilot normally. Tokenotch will show activity when it arrives. Configured does not mean delivery has been verified.")
+            Text("Restart your configured client and use it normally. Claude reports metrics only; Copilot activity has separate delivery evidence. Configured does not mean data has arrived.")
                 .font(.callout).foregroundStyle(.secondary)
             Divider()
             Text("Your optional choices").font(.headline)
@@ -234,6 +246,7 @@ private struct OnboardingResult: View {
             }
             LabeledContent("Notifications", value: model.options.notifications.enabled ? model.notificationStatus : "Off")
             LabeledContent("Usage history", value: history.error ?? (history.enabled ? "On" : "Off"))
+            LabeledContent("Claude usage history", value: history.isEnabled(.claudeCode) ? "On" : "Off")
             LabeledContent("Session timelines", value: timeline.privacySummary)
             LabeledContent("Remember session notices", value: attention.error ?? (attention.saving ? "On" : "Off"))
             Text("Anything left off or unfinished can be managed in Settings later.")
