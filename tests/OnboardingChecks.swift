@@ -278,8 +278,9 @@ enum OnboardingChecks {
                 }
                 try NotchChecks.require(content.contains(action), "Primary action must remain visible on \(step)")
                 if step == .connections {
-                    try NotchChecks.require(content.contains("Copilot CLI") && content.contains("Visual Studio Code"),
-                                            "Both client choices must be visible")
+                    try NotchChecks.require(content.contains("Copilot CLI") && content.contains("Visual Studio Code") &&
+                        content.contains("Claude Code CLI") && !content.contains("Claude Desktop Code"),
+                        "Only the three supported client choices must remain visible")
                 }
                 if step == .complete {
                     try NotchChecks.require(content.contains("Your setup is complete") && content.contains("Waiting for first activity"),
@@ -349,11 +350,22 @@ enum OnboardingChecks {
         defer { panel.close() }
 
         func press(_ title: String) throws {
-            func find() throws -> VNRecognizedTextObservation? {
+            var visible: [String] = []
+            func find() throws -> CGRect? {
                 host.layoutSubtreeIfNeeded()
                 RunLoop.main.run(until: Date().addingTimeInterval(0.1))
                 let image = try NotchChecks.capture(host)
-                return try text(in: image).first { $0.topCandidates(1).first?.string == title }
+                let observations = try text(in: image)
+                visible = observations.compactMap { $0.topCandidates(1).first?.string }
+                for observation in observations {
+                    guard let candidate = observation.topCandidates(1).first,
+                          let range = candidate.string.range(of: title, options: .backwards),
+                          range.upperBound == candidate.string.endIndex,
+                          candidate.string[..<range.lowerBound].allSatisfy({ !$0.isLetter && !$0.isNumber }) else { continue }
+                    // Vision can include the button's leading symbol in the text observation.
+                    if let bounds = try candidate.boundingBox(for: range) { return bounds.boundingBox }
+                }
+                return nil
             }
             var found = try find()
             if found == nil {
@@ -369,9 +381,9 @@ enum OnboardingChecks {
                 }
             }
             guard let found else {
-                throw NotchCheckFailure.failed("Onboarding action not visible: \(title)")
+                throw NotchCheckFailure.failed("Onboarding action not visible: \(title); step=\(model.setupStep); visible=\(visible)")
             }
-            let bounds = found.boundingBox
+            let bounds = found
             let point = CGPoint(x: bounds.midX * host.bounds.width,
                                 y: (host.isFlipped ? 1 - bounds.midY : bounds.midY) * host.bounds.height)
             try NotchChecks.click(panel, at: host.convert(point, to: nil))

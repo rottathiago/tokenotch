@@ -143,7 +143,8 @@ enum VSCodeIntegrationChecks {
         ])
         let partialStatus = try await send(partial)
         try require(partialStatus == 200 && controller.rejected == 1 && controller.accepted[.vscodeCopilot] == 1 &&
-                    controller.error == TelemetryError.invalid.rawValue,
+                    controller.error == TelemetryError.invalid.rawValue &&
+                    controller.lastRejectedObservation[.vscodeCopilot] != nil,
                     "A mixed accepted/rejected batch still reports partial coverage.")
         let goodStatus = try await send(good)
         try require(goodStatus == 200 && controller.error == nil && controller.lastObservation[.vscodeCopilot] != nil,

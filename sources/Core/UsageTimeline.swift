@@ -56,7 +56,7 @@ public struct UsageTimeline: Equatable, Sendable {
                 bucket.tokens = day.tokens.total
                 bucket.calls = day.tokens.calls
                 bucket.recordingSeconds = day.recordingSeconds
-                bucket.gap = day.gap
+                bucket.gap = day.gap || snapshot.comparisonBegan.map { start < $0 } ?? true
                 bucket.legacy = day.tokens.unverifiedCalls > 0
             }
             return bucket

@@ -27,10 +27,29 @@ struct CopilotSummaryContent: View {
             header
             VStack(alignment: .leading, spacing: tight) {
                 sectionHeading("Usage")
-                allowance
+                if presentation.provider == .claudeCode {
+                    claudeAllowance
+                    if let totals = presentation.usageTotals { EstimatedCostRow(coverage: totals.costCoverage) }
+                    if let warning = presentation.metricsWarning {
+                        Button(action: openConnections) {
+                            Label(warning, systemImage: "exclamationmark.triangle")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .font(type.cardSecondary)
+                        .foregroundStyle(Palette.sessionWarning)
+                        .buttonStyle(rowStyle)
+                        .help("Usage coverage is incomplete. Open Connections for details.")
+                    }
+                } else { allowance }
             }
             rule
-            activity
+            if presentation.provider == .claudeCode {
+                VStack(alignment: .leading, spacing: tight) {
+                    activity
+                    Text("Activity and attention are unavailable. A context reading does not imply a working session.")
+                        .font(type.cardSecondary).foregroundStyle(Palette.secondary)
+                }
+            } else { activity }
             rule
             usageChart
             rule
@@ -43,12 +62,36 @@ struct CopilotSummaryContent: View {
         .preferredColorScheme(.dark)
     }
 
+    private var claudeAllowance: some View {
+        Button(action: openAllowance) {
+            VStack(alignment: .leading, spacing: tight) {
+                if let snapshot = presentation.claudeStatusLine, !snapshot.quotas.isEmpty {
+                    ForEach(snapshot.quotas) { quota in
+                        ClaudeQuotaMeter(quota: quota, observedAt: snapshot.observedAt, now: presentation.now,
+                                         scale: scale, onNotch: true)
+                    }
+                } else {
+                    Text(presentation.claudeStatusLineEnabled ? "Quota not reported" : "Enable quota & context in Connections")
+                    Text("Claude reports subscription limits after an API response when available.")
+                        .font(type.cardSecondary).foregroundStyle(Palette.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(rowStyle)
+        .help("Reported Claude subscription limits, not local token totals. Open full usage.")
+    }
+
     private var header: some View {
         HStack(spacing: 8 * scale) {
-            CopilotGlyph().fill(Palette.primary, style: FillStyle(eoFill: true))
-                .frame(width: NotchLayout.glyphSize * scale, height: NotchLayout.glyphSize * scale)
-                .accessibilityHidden(true)
-            Text("GitHub Copilot / Copilot CLI").font(type.cardTitle)
+            Group {
+                if presentation.provider == .claudeCode { ClaudeGlyph().fill(Palette.primary) }
+                else { CopilotGlyph().fill(Palette.primary, style: FillStyle(eoFill: true)) }
+            }
+            .frame(width: NotchLayout.glyphSize * scale, height: NotchLayout.glyphSize * scale)
+            .accessibilityHidden(true)
+            Text(presentation.provider?.title ?? "All providers").font(type.cardTitle)
                 .lineLimit(1).minimumScaleFactor(0.8)
         }
     }
@@ -250,7 +293,7 @@ struct CopilotSummaryContent: View {
                 Spacer(minLength: 4 * scale)
                 Menu {
                     Button("All sources") { selectSource(nil) }
-                    ForEach(UsageSource.allCases) { source in
+                    ForEach(presentation.provider?.activeSources ?? UsageSource.activeCases) { source in
                         Button(source.title) { selectSource(source) }
                     }
                 } label: {
@@ -479,13 +522,13 @@ struct CopilotSummaryView: View {
                         Button("Settings\u{2026}", action: openSettings)
                             .keyboardShortcut(",", modifiers: .command)
                         Spacer(minLength: 4 * scale)
-                        Button("GitHub model pricing \u{2197}", action: openPricing)
+                        Button(presentation.provider == .claudeCode ? "Claude pricing \u{2197}" : "GitHub model pricing \u{2197}", action: openPricing)
                             .font(Typography(scale: scale).cardCaption)
                             .foregroundStyle(Palette.secondary)
                             .lineLimit(1)
-                            .help(NotchLayout.modelPricingURL)
-                            .accessibilityLabel("GitHub model pricing")
-                            .accessibilityHint("Opens GitHub's Copilot model pricing page in your browser.")
+                            .help(presentation.provider == .claudeCode ? "https://claude.com/pricing" : NotchLayout.modelPricingURL)
+                            .accessibilityLabel(presentation.provider == .claudeCode ? "Claude pricing" : "GitHub model pricing")
+                            .accessibilityHint("Opens this provider's pricing page in your browser.")
                     }
                     .font(Typography(scale: scale).cardBody)
                     .buttonStyle(NotchCardButtonStyle(scale: scale))

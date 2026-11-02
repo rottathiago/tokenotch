@@ -18,6 +18,26 @@ is approved for the exact source revision and artifact.**
 | VS Code Agent Host usage | Separate public OTel settings | Separate producer attribution; parent spans and terminal CLI calls excluded. |
 | VS Code companion | VS Code 1.138.0+ manifest target | Public APIs, local trusted window, selected installation/profile; target is not blanket future-version certification. |
 
+Claude Code CLI has an
+[experimental, opt-in metrics integration](claude-code-contract.md).
+A temporary, consented CLI check passed numeric API-request delivery on Claude
+Code 2.1.212 / macOS 27.2 arm64. Minimum version floors, restart/replay/handoff,
+installed owned setup/removal and lifecycle acceptance remain unestablished.
+Application setup, provider UI, independent receiver lifetime and exact-owned
+removal have synthetic checks. Desktop collection, onboarding and setup controls
+are removed. Legacy archives remain readable and unchanged owned marker settings
+are retired safely. Optional start/end hooks manage observed session visibility;
+working activity and attention cannot be enabled. Start/end delivery has
+synthetic coverage only, not real-client acceptance.
+Do not interpret the single tested version as a minimum supported version.
+An independent optional Claude `statusLine` integration displays reported 5-hour
+and 7-day quotas/resets and current session context. It has synthetic parser,
+owned-setup, helper/bridge and rendered-UI checks only. Missing subscription
+fields remain unavailable; no quota API, credentials or transcript access is used.
+Optional sign-in uses official `claude auth login` and `claude auth status`
+commands. Authentication has mock CLI/application coverage; live browser login
+acceptance is pending. Sign-in alone does not establish quota delivery.
+
 Copilot CLI releases with the expected published contracts are candidates, not
 automatically accepted clients. Record the exact CLI version, VS Code version,
 Copilot extension version, macOS version, architecture, and observed capabilities

@@ -1,5 +1,17 @@
 # Tokenotch integration contracts
 
+The macOS [Claude Code contract](claude-code-contract.md) defines experimental
+CLI metrics, provider identity/accounting,
+owned settings and archive isolation.
+Collection requires explicit selected-root setup. Installed-client certification
+is pending. Desktop collection and setup controls have been removed.
+Separately approved start/end hooks manage observed session visibility only;
+working activity and attention remain unavailable. Optional account sign-in uses
+the official Claude CLI and sanitized authentication status, not stored credentials.
+Its separate status-line opt-in reports numeric subscription quota/reset windows
+and per-session context through the private bridge without reading credentials
+or transcripts. See the contract for field availability and freshness limits.
+
 The current release acceptance status is in [compatibility](compatibility.md).
 The companion's engine version is a minimum contract target, not certification
 of all newer clients. Both local clients must pass real delivery acceptance.
@@ -66,6 +78,8 @@ event in the extension's retry queue until delivery or the two-minute freshness
 limit. Retries preserve the original event ID and timestamp. Lifecycle and
 notification hook failures remain fail-open; all failures still use sanitized
 logging and the bridge-health marker, never stdout.
+The separately approved Claude status-line helper intentionally prints only its
+numeric context/quota summary for Claude's footer; it never emits hook decisions.
 
 ### Live per-session context
 

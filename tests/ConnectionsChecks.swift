@@ -141,15 +141,16 @@ enum ConnectionsChecks {
             let request = VNRecognizeTextRequest()
             try VNImageRequestHandler(cgImage: cgImage).perform([request])
             let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
-            try NotchChecks.require(text.contains("Copilot CLI") && text.contains("Visual Studio Code"),
-                                    "Both clients must be visible at the minimum settings width")
-            try NotchChecks.require(text.contains("Set up Copilot CLI") && text.contains("Set up VS Code"),
-                                    "Both primary setup actions must be visible without opening technical details")
+            try NotchChecks.require(text.contains("Notch providers") &&
+                text.contains("Show GitHub Copilot in the notch") && text.contains("Show Claude Code in the notch"),
+                "Both provider visibility controls must be visible together without scrolling")
+            try NotchChecks.require(text.contains("Copilot CLI") && text.contains("Set up Copilot CLI"),
+                                    "Provider visibility must not displace the first client's setup action")
             try NotchChecks.require(!text.contains("VS Code usage") && !text.contains("Consent & install")
                                     && !text.contains("Enterprise user budget"),
                                     "Do not restore duplicate integration sections or technical controls in the primary view")
         }
-        for client in Client.allCases {
+        for client in Client.copilotCases {
             let image = try NotchChecks.hostedImage(ConnectionSetupView(model: model, client: client)
                 .environment(\.colorScheme, .light), size: CGSize(width: 510, height: 450))
             try NotchChecks.save(image, name: "connections-setup-\(client.rawValue)", directory: directory)
@@ -168,6 +169,85 @@ enum ConnectionsChecks {
                                 "Opening and rendering setup must not opt into usage")
         try NotchChecks.require(!FileManager.default.fileExists(atPath: root.path),
                                 "Opening Connections must not install or configure anything")
+    }
+
+    static func notchVisibility() throws {
+        guard NSScreen.main != nil else { throw NotchCheckFailure.failed("Provider visibility requires a display") }
+        let suite = "tokenotch-provider-visibility-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        try PrivateFiles.directory(root)
+        defaults.set(true, forKey: "claudeMetricsEnabled")
+        defaults.set(true, forKey: "vscodeMetricsEnabled")
+        let model = TokenotchModel(defaults: defaults, root: root)
+        model.options.autoHideNotch = false
+        var pointer = CGPoint(x: -100_000, y: -100_000)
+        let before = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
+        let fleet = NotchFleet(model: model, openSettings: {}, isFullScreen: { _ in false },
+            pointerLocation: { pointer })
+        defer {
+            fleet.stop()
+            model.stop()
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: root)
+        }
+        func badges() -> [NotchPanel] {
+            NSApplication.shared.windows.compactMap { $0 as? NotchPanel }.filter {
+                !before.contains(ObjectIdentifier($0)) && $0.isVisible &&
+                    !$0.acceptsKeyboardFocus
+            }
+        }
+        func cards() -> [ShapeHostingView<CopilotSummaryView>] {
+            NSApplication.shared.windows.filter { !before.contains(ObjectIdentifier($0)) && $0.isVisible }
+                .compactMap { $0.contentView as? ShapeHostingView<CopilotSummaryView> }
+        }
+        fleet.start()
+        let choices: [(Bool, Bool, [UsageProvider])] = [
+            (true, true, [.copilot, .claudeCode]),
+            (false, true, [.claudeCode]),
+            (false, false, []),
+            (true, false, [.copilot]),
+            (false, true, [.claudeCode])
+        ]
+        for (copilot, claude, expected) in choices {
+            model.options.showCopilotBadge = copilot
+            model.options.showClaudeNotch = claude
+            try NotchChecks.drainMainQueue()
+            try NotchChecks.require(model.notchProviders == expected && cards().isEmpty,
+                                    "Changing provider visibility must remove the previous provider's open card")
+            let visible = badges()
+            try NotchChecks.require(visible.count == (expected.isEmpty ? 0 : 1),
+                                    "Turning both providers off must remove the notch; either provider can restore it")
+            if let badge = visible.first {
+                let size = NotchLayout.size(edge: .right, scale: 1, providerCount: expected.count)
+                try NotchChecks.require(badge.frame.width == ceil(size.width) && badge.frame.height == ceil(size.height),
+                                        "The notch must resize to the enabled provider count")
+            }
+            if !copilot {
+                fleet.reveal(allowSettings: false)
+                try NotchChecks.require(cards().isEmpty, "Copilot notifications must not reveal a hidden provider")
+            }
+            if let badge = visible.first, let first = expected.first {
+                let center = NotchLayout.ringCenter(in: badge.frame.size, edge: .right, scale: 1)
+                pointer = CGPoint(x: badge.frame.minX + center.x, y: badge.frame.maxY - center.y)
+                fleet.reveal()
+                try NotchChecks.require(cards().count == 1 && cards().first?.rootView.presentation.provider == first,
+                                        "The summary must belong to a visible provider, including Claude-only mode")
+                pointer = CGPoint(x: -100_000, y: -100_000)
+            }
+            try NotchChecks.require(model.claude.enabled && model.vscode.enabled &&
+                !model.history.isEnabled(.copilot) && !model.history.isEnabled(.claudeCode) &&
+                !model.timeline.isEnabled(.copilot) && !model.timeline.isEnabled(.claudeCode),
+                "Visibility must not change collection or recording consent")
+        }
+        model.options.showNotch = false
+        try NotchChecks.drainMainQueue()
+        try NotchChecks.require(badges().isEmpty && cards().isEmpty,
+                                "The global notch setting must still hide every provider and card")
+        model.options.showNotch = true
+        try NotchChecks.drainMainQueue()
+        try NotchChecks.require(model.notchProviders == [.claudeCode] && badges().count == 1,
+                                "Restoring the global notch must retain the user's provider choices")
     }
 
     static func configurationStates(directory: URL? = nil) throws {
@@ -201,13 +281,13 @@ enum ConnectionsChecks {
         func capture(_ model: TokenotchModel, _ name: String, configured: Set<Client>) throws {
             for scheme in [ColorScheme.light, .dark] {
                 let image = try NotchChecks.hostedImage(ConnectionsView(model: model).environment(\.colorScheme, scheme),
-                                                      size: CGSize(width: 620, height: 520))
+                                                      size: CGSize(width: 620, height: 720))
                 try NotchChecks.save(image, name: "connections-status-\(name)-\(scheme)", directory: directory)
                 guard let cgImage = image.cgImage else { throw NotchCheckFailure.failed("Connections image missing") }
                 let request = VNRecognizeTextRequest()
                 try VNImageRequestHandler(cgImage: cgImage).perform([request])
                 let observations = request.results ?? []
-                for client in Client.allCases {
+                for client in Client.copilotCases {
                     let title = client == .cli ? "Copilot CLI" : "Visual Studio Code"
                     guard let heading = observations.first(where: {
                         $0.topCandidates(1).first?.string.contains(title) == true

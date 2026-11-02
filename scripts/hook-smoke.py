@@ -120,6 +120,91 @@ def main():
             assert (tokens["input"], tokens["output"], tokens["cacheInput"], tokens["cacheWrite"]) == (40, 10, 40, 20)
             assert tokens["callID"] == hashlib.sha256(b"private-session:private-call").hexdigest()
             assert not marker.exists(), "Successful forwarding must not report a delivery failure"
+            claude_registration = root / "claudeCLI.registration"
+            claude_registration.write_text("fixture-claude-registration")
+            claude_registration.chmod(0o600)
+            status_line = {
+                "session_id": "private-claude-session", "transcript_path": "/private-path/transcript.jsonl",
+                "context_window": {
+                    "context_window_size": 200000,
+                    "current_usage": {
+                        "input_tokens": 1000, "output_tokens": 9000,
+                        "cache_read_input_tokens": 30000, "cache_creation_input_tokens": 9000,
+                    },
+                },
+                "rate_limits": {
+                    "five_hour": {"used_percentage": 23.5, "resets_at": int(time.time()) + 3600},
+                    "seven_day": {"used_percentage": 81, "resets_at": int(time.time()) + 86400},
+                },
+            }
+            result = subprocess.run(
+                [str(helper), "claudeCLI", "statusLine"], input=json.dumps(status_line).encode(),
+                env=env, capture_output=True, timeout=3,
+            )
+            assert result.returncode == 0 and b"Context 20%" in result.stdout
+            assert b"private-" not in result.stdout + result.stderr
+            connection, _ = receiver.accept()
+            with connection:
+                connection.settimeout(3)
+                wire = b""
+                while not wire.endswith(b"\n"):
+                    part = connection.recv(4096)
+                    assert part
+                    wire += part
+                    assert len(wire) <= 4096
+            assert b"private-" not in wire, "Claude status-line input was not stripped"
+            envelope = json.loads(wire)
+            assert envelope["registration"] == "fixture-claude-registration" and "event" not in envelope
+            reading = envelope["claudeStatusLine"]
+            assert reading["session"] == hashlib.sha256(b"claudeCode:session:private-claude-session").hexdigest()
+            assert reading["context"] == {"currentTokens": 40000, "tokenLimit": 200000}
+            assert [quota["usedPercentage"] for quota in reading["quotas"]] == [23.5, 81]
+            assert not marker.exists()
+            session_registration = root / "claudeSessions.registration"
+            session_registration.write_text("fixture-session-registration")
+            session_registration.chmod(0o600)
+            for hook, kind in [("SessionStart", "started"), ("SessionEnd", "ended")]:
+                payload = {
+                    "session_id": "private-claude-session", "hook_event_name": hook,
+                    "transcript_path": "/private-path/transcript.jsonl", "prompt": "private-content",
+                    "reason": "prompt_input_exit",
+                }
+                invoke("claudeCLI", hook, payload, 0)
+                connection, _ = receiver.accept()
+                with connection:
+                    connection.settimeout(3)
+                    wire = b""
+                    while not wire.endswith(b"\n"):
+                        part = connection.recv(4096)
+                        assert part
+                        wire += part
+                        assert len(wire) <= 4096
+                assert b"private-" not in wire
+                envelope = json.loads(wire)
+                assert set(envelope) == {"registration", "claudeSession"}
+                assert envelope["registration"] == "fixture-session-registration"
+                event = envelope["claudeSession"]
+                assert set(event) == {"version", "session", "kind", "observedAt"}
+                assert event["kind"] == kind and event["session"] == reading["session"]
+            invoke("claudeCLI", "SessionEnd", {
+                "session_id": "private-claude-session", "hook_event_name": "SessionEnd", "agent_id": "child",
+            }, 0)
+            assert not marker.exists(), "A filtered child hook became a delivery failure"
+            session_registration.unlink()
+            invoke("claudeCLI", "SessionEnd", {
+                "session_id": "private-claude-session", "hook_event_name": "SessionEnd",
+            }, 0)
+            assert marker.read_text() == "Hook delivery unavailable", "Session hooks must remain fail-open"
+            assert claude_registration.exists(), "Session withdrawal removed quota authorization"
+            marker.unlink()
+            claude_registration.unlink()
+            result = subprocess.run(
+                [str(helper), "claudeCLI", "statusLine"], input=json.dumps(status_line).encode(),
+                env=env, capture_output=True, timeout=3,
+            )
+            assert result.returncode == 0 and b"Context 20%" in result.stdout, "Status-line failures must remain fail-open"
+            assert marker.read_text() == "Hook delivery unavailable"
+            assert b"private-" not in result.stdout + result.stderr
     print("PASS: native telemetry failures return nonzero, retries preserve usage, and lifecycle hooks remain fail-open.")
 
 

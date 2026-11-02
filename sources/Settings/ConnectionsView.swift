@@ -6,6 +6,10 @@ private final class ConnectionsSelection: ObservableObject {
     @Published var setupClient: Client?
     @Published var removingClient: Client?
     @Published var removingUsage = false
+    @Published var claudeSetup = false
+    @Published var removingClaude = false
+    @Published var enablingClaudeStatusLine = false
+    @Published var enablingClaudeSessions = false
 }
 
 enum ConnectionReadiness: Equatable {
@@ -36,17 +40,24 @@ enum ConnectionReadiness: Equatable {
     }
 
     static func activity(installed: Bool, approved: Bool, observed: Date?, now: Date) -> Self {
-        guard installed else { return .off }
-        if let observed { return now.timeIntervalSince(observed) <= 300 ? .receiving : .stale }
-        return approved ? .waiting : .needsSetup
+        Self(SignalReadiness(capability: .supported, enabled: installed, configured: approved,
+                             listening: installed, observed: observed).delivery(now: now))
     }
 
     static func usage(enabled: Bool, approved: Bool, ready: Bool, observed: Date?, now: Date) -> Self {
-        guard enabled else { return .off }
-        if ready, let observed { return now.timeIntervalSince(observed) <= 300 ? .receiving : .stale }
-        guard approved else { return .needsSetup }
-        guard ready else { return .unavailable }
-        return .waiting
+        Self(SignalReadiness(capability: .supported, enabled: enabled, configured: approved,
+                             listening: ready, observed: observed).delivery(now: now))
+    }
+
+    private init(_ delivery: SignalDelivery) {
+        switch delivery {
+        case .off: self = .off
+        case .needsSetup: self = .needsSetup
+        case .waiting: self = .waiting
+        case .receiving: self = .receiving
+        case .stale: self = .stale
+        case .unverified, .unsupported, .unavailable, .rejected: self = .unavailable
+        }
     }
 }
 
@@ -101,11 +112,15 @@ private struct ConnectionHeader: View {
 struct ConnectionsView: View {
     @ObservedObject var model: TokenotchModel
     @ObservedObject private var integration: VSCodeIntegrationController
+    @ObservedObject private var claude: ClaudeCodeIntegrationController
+    @ObservedObject private var claudeAccount: ClaudeAccountController
     @StateObject private var selection = ConnectionsSelection()
 
     init(model: TokenotchModel) {
         self.model = model
         integration = model.vscode
+        claude = model.claude
+        claudeAccount = model.claude.account
     }
 
     var body: some View {
@@ -115,6 +130,14 @@ struct ConnectionsView: View {
                     Label("Client connections are turned off by your organization.", systemImage: "lock.fill")
                         .foregroundStyle(SettingsStyle.caution)
                 }
+            }
+            Section {
+                Toggle("Show GitHub Copilot in the notch", isOn: $model.options.showCopilotBadge)
+                Toggle("Show Claude Code in the notch", isOn: $model.options.showClaudeNotch)
+            } header: {
+                Text("Notch providers")
+            } footer: {
+                SettingsFootnote("Choose which providers appear in the notch. Claude Code appears after setup or when saved usage is available. Hiding a provider does not disconnect it or pause recording. Turn both off to hide the notch.")
             }
             Section {
                 VStack(alignment: .leading, spacing: 10) {
@@ -145,9 +168,13 @@ struct ConnectionsView: View {
                                 .disabled(!model.registeredClients.contains(.cli))
                         }.fixedSize()
                     }
+                    HistoryControls(history: model.history, showsManagement: false)
                 }
             } header: {
-                ConnectionHeader(client: .cli, title: "Copilot CLI", configured: model.isClientConfigured(.cli))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("GitHub Copilot").font(.caption).foregroundStyle(.secondary)
+                    ConnectionHeader(client: .cli, title: "Copilot CLI", configured: model.isClientConfigured(.cli))
+                }
             } footer: {
                 SettingsFootnote("Configured means setup is complete, even before data arrives. Activity and usage show data delivery separately.")
             }
@@ -214,9 +241,90 @@ struct ConnectionsView: View {
                 SettingsFootnote("Configured confirms activity setup. Model & token usage is optional and has its own data status.")
             }
             Section {
+                LabeledContent("CLI model & token usage", value: claude.readiness(.claudeCLI).metrics.delivery(now: model.clock).rawValue)
+                LabeledContent("Working activity & notifications", value: "Not verified; unavailable")
+                Text(claude.status).font(.caption).foregroundStyle(.secondary)
+                if let error = claude.error {
+                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(SettingsStyle.caution)
+                }
+                HStack {
+                    Button(claude.configured ? "Review Claude setup..." : "Set up Claude Code...") {
+                        selection.claudeSetup = true
+                    }.disabled(claude.isWorking || model.managedHooksDisabled)
+                    if claude.busy { ProgressView().controlSize(.small) }
+                    if claude.enabled && !claude.ready {
+                        Button("Retry receiver") { claude.retry() }.disabled(claude.isWorking || model.managedHooksDisabled)
+                    }
+                    Spacer()
+                    Button("Disconnect...", role: .destructive) { selection.removingClaude = true }
+                        .disabled(claude.isWorking || (!claude.enabled && !claude.cleanupNeeded))
+                }
+                DisclosureGroup("Claude account sign-in") {
+                    TextField("Claude CLI executable", text: $claudeAccount.executable)
+                        .textFieldStyle(.roundedBorder)
+                    Text(claudeAccount.status)
+                    HStack {
+                        Button("Sign in to Claude...") {
+                            claudeAccount.signIn(configurationRoot: claude.configurationRoot)
+                        }
+                        Button("Check sign-in") {
+                            claudeAccount.connect(configurationRoot: claude.configurationRoot)
+                        }
+                        if claudeAccount.busy { ProgressView().controlSize(.small) }
+                        if claudeAccount.enabled {
+                            Button("Stop account checks") { claudeAccount.disconnect() }
+                        }
+                    }.disabled(model.managedAccountDisabled || claudeAccount.busy)
+                    Text("Sign-in opens the official Claude CLI in Terminal and your browser. Tokenotch checks only the CLI's authentication status; it never reads stored credentials. Stopping account checks keeps your CLI login.")
+                    Text("Sign-in does not enable collection or saving history. Enable quota and context separately below: eligible subscriptions report 5-hour and 7-day usage/reset windows through the CLI status line, not a separate account-quota API. Usage in the Claude app is not collected.")
+                }.font(.caption).foregroundStyle(.secondary)
+                LabeledContent("CLI quota & session context", value: claude.statusLineEnabled
+                    ? (claude.statusLineState.latest == nil ? "Waiting for status-line data" : "Data received")
+                    : "Off")
+                if let error = claude.statusLineError {
+                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(SettingsStyle.caution)
+                }
+                if claude.statusLineEnabled {
+                    Button("Turn off quota & context") { claude.disableStatusLine() }
+                } else {
+                    Button("Enable quota & context...") { selection.enablingClaudeStatusLine = true }
+                        .disabled(!claude.ready || claude.isWorking || model.managedHooksDisabled)
+                }
+                LabeledContent("Session start/end tracking", value: claude.sessionTrackingEnabled ? "Enabled" : "Off")
+                if let error = claude.sessionTrackingError {
+                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(SettingsStyle.caution)
+                }
+                if claude.sessionTrackingEnabled {
+                    Button("Turn off session tracking") { claude.disableSessionTracking() }
+                } else {
+                    Button("Enable session tracking...") { selection.enablingClaudeSessions = true }
+                        .disabled(!claude.ready || claude.isWorking || model.managedHooksDisabled)
+                }
+                DisclosureGroup("Coverage and privacy") {
+                    Text("Experimental Claude Code CLI metrics. Numeric delivery was checked on Claude Code 2.1.212; no minimum supported version is established. Restart CLI sessions after setup. Configuration alone is not proof of delivery.")
+                    Text("Only API-request usage is counted. Missing stable request identity is rejected; missing sessions stay unlinked. Tokenotch does not read transcripts, credentials or account profiles.")
+                    Text("Quota and context are a separate opt-in using Claude's documented statusLine input. Setup adds a local numeric helper only if no status line already exists. Existing sessions report on their next status-line update; resume or restart if needed. No credentials or transcripts are read.")
+                    Text("Claude reports 5-hour and 7-day limits for eligible subscriptions after an API response. Missing fields are not zero usage. Idle readings become stale, and past reset times wait for a new report. Context uses the latest input and cache tokens, not cumulative session usage.")
+                    Text("Session tracking is a separate opt-in. Start/end hooks keep observed CLI sessions visible while idle and remove them when they end; they do not detect working activity, completion or attention. Force-quitting Claude or missing hooks can prevent delivery. Restart or resume sessions after enabling.")
+                    Text("\(claude.accepted) accepted observations; \(claude.rejected) unsupported; \(claude.unlinked) unlinked; \(claude.failedRequests) rejected requests. Replays are deduplicated by the ledger.")
+                    if !claude.rejectionStages.isEmpty {
+                        Text("Rejection reasons since Tokenotch started")
+                        ForEach(claude.rejectionStages.keys.sorted { $0.rawValue < $1.rawValue }, id: \.self) { stage in
+                            LabeledContent(stage.title, value: (claude.rejectionStages[stage] ?? 0).formatted())
+                        }
+                        Text("Only fixed reason categories and counts are kept in memory. Rejected field values, raw telemetry and conversation content are not saved.")
+                    }
+                }.font(.caption).foregroundStyle(.secondary)
+                HistoryControls(history: model.history, showsManagement: false, provider: .claudeCode)
+            } header: {
+                ConnectionHeader(client: .claudeCLI, title: "Claude Code CLI", configured: claude.configured)
+            } footer: {
+                SettingsFootnote("Account sign-in, collection, session tracking, saving history and notch visibility are independent. Disconnect keeps saved data. Working activity and notifications remain unavailable.")
+            }
+            Section {
                 DisclosureGroup("Troubleshooting") {
                     LabeledContent("Local activity receiver", value: model.bridgeStatus)
-                    ForEach(Client.allCases) { client in
+                    ForEach(Client.copilotCases) { client in
                         LabeledContent(client == .cli ? "CLI activity" : "VS Code activity",
                                        value: model.connection[client] ?? "Not installed")
                     }
@@ -233,12 +341,29 @@ struct ConnectionsView: View {
             model.refreshConnectionInstallations()
         }
         .sheet(item: $selection.setupClient) { client in ConnectionSetupView(model: model, client: client) }
+        .sheet(isPresented: $selection.claudeSetup) { ClaudeSetupView(model: model, integration: claude) }
+        .confirmationDialog("Enable Claude quota and context?", isPresented: $selection.enablingClaudeStatusLine, titleVisibility: .visible) {
+            Button("Enable quota & context") { model.enableClaudeStatusLine() }
+        } message: {
+            Text("Add Tokenotch's status line to the selected Claude settings. It displays numeric context and quota in Claude and forwards those fields locally. Existing status lines are never replaced. Claude may hide some built-in keyboard hints while a custom status line is active. No account credentials or transcripts are accessed.")
+        }
+        .confirmationDialog("Track Claude session starts and ends?", isPresented: $selection.enablingClaudeSessions, titleVisibility: .visible) {
+            Button("Enable session tracking") { model.enableClaudeSessionTracking() }
+        } message: {
+            Text("Add Tokenotch's SessionStart and SessionEnd hooks to the selected Claude settings, preserving other hooks. Only hashed session IDs, start/end state and observation times are forwarded locally, never prompts or transcripts. Usage totals are retained when a session closes. Restart or resume Claude sessions afterward.")
+        }
+        .confirmationDialog("Disconnect Claude Code?", isPresented: $selection.removingClaude, titleVisibility: .visible) {
+            Button("Disconnect Claude Code", role: .destructive) { model.removeClaude() }
+        } message: {
+            Text("Stop only the Claude receiver and remove unchanged Tokenotch-owned exporter, status-line and session-hook entries. Later user edits and Copilot connections are preserved. Saved history, timelines and your Claude CLI login remain. Restart Claude CLI afterward.")
+        }
         .confirmationDialog("Disconnect this client?", isPresented: Binding(
             get: { selection.removingClient != nil }, set: { if !$0 { selection.removingClient = nil } }), titleVisibility: .visible) {
             Button("Disconnect", role: .destructive) {
                 if let client = selection.removingClient { model.uninstall(client) }
                 selection.removingClient = nil
             }
+
         } message: {
             Text("Stop new activity and usage observations. Saved history and timelines remain. Only unchanged Tokenotch-owned files and settings are removed; VS Code asks for approval to restore its settings.")
         }
@@ -264,6 +389,101 @@ struct ConnectionsView: View {
         if !integration.enabled && integration.usageRemovalNeeded { return .cleanupNeeded }
         return .usage(enabled: integration.enabled, approved: integration.usageConfigured, ready: integration.ready,
                       observed: integration.lastObservation.values.max(), now: model.clock)
+    }
+}
+
+private final class ClaudeSetupSelection: ObservableObject {
+    @Published var configurationRoot: String
+    @Published var reviewed = false
+
+    init(configurationRoot: URL) {
+        self.configurationRoot = configurationRoot.path
+    }
+}
+
+private struct ClaudeSetupView: View {
+    let model: TokenotchModel
+    @ObservedObject var integration: ClaudeCodeIntegrationController
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            ClaudeSetupContent(model: model, integration: integration, close: { dismiss() })
+                .padding(24)
+        }.frame(width: 520, height: 650)
+    }
+}
+
+struct ClaudeSetupContent: View {
+    let model: TokenotchModel
+    @ObservedObject var integration: ClaudeCodeIntegrationController
+    var close: (() -> Void)? = nil
+    @StateObject private var selection: ClaudeSetupSelection
+
+    init(model: TokenotchModel, integration: ClaudeCodeIntegrationController, close: (() -> Void)? = nil) {
+        self.model = model
+        self.integration = integration
+        self.close = close
+        _selection = StateObject(wrappedValue: ClaudeSetupSelection(configurationRoot: integration.configurationRoot))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Connect Claude Code CLI").font(.title2.weight(.semibold))
+            Text("Enable CLI metrics using a private, logs-only localhost connection in the selected user settings. Other settings and hooks are preserved. Other Claude clients and remote sessions are not collected.")
+            TextField("Local configuration root", text: $selection.configurationRoot)
+                .textFieldStyle(.roundedBorder)
+                .disabled(integration.isWorking)
+            Text("Default: ~/.claude. No account or profile discovery. Setup asks before making settings.json private. Folder permissions and file ownership are never changed; symlinked paths are refused.")
+                .font(.caption).foregroundStyle(.secondary)
+            Toggle("I checked Claude /status: no managed telemetry or external collector applies, and this is the local CLI configuration root.", isOn: $selection.reviewed)
+            Text("Do not continue if a managed collector, telemetry opt-out, shell override or remote configuration applies. Tokenotch checks visible local policy and its own environment but cannot inspect Claude's effective shell or server-managed policy.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let error = integration.error {
+                Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(SettingsStyle.caution)
+            }
+            Text(integration.status).font(.caption).foregroundStyle(.secondary)
+            HStack {
+                if let close { Button("Close", action: close).keyboardShortcut(.cancelAction) }
+                Spacer()
+                if integration.busy { ProgressView().controlSize(.small) }
+                Button("Enable CLI metrics") {
+                    model.configureClaude(configurationRoot: URL(fileURLWithPath: selection.configurationRoot, isDirectory: true),
+                                          policyReviewed: selection.reviewed)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!selection.reviewed || !selection.configurationRoot.hasPrefix("/") || integration.isWorking || model.managedHooksDisabled)
+            }
+        }
+        .sheet(item: Binding(get: { integration.permissionChange },
+                             set: { if $0 == nil { integration.cancelPermissionChange() } })) { change in
+            ClaudePermissionsView(integration: integration, change: change)
+        }
+        .onDisappear { integration.cancelPermissionChange() }
+    }
+}
+
+struct ClaudePermissionsView: View {
+    @ObservedObject var integration: ClaudeCodeIntegrationController
+    let change: ClaudeCodeInstallation.PermissionChange
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Make Claude settings private?", systemImage: "lock.shield")
+                .font(.title2.weight(.semibold))
+            Text("The selected settings.json has permissions \(change.currentPermissions). Tokenotch needs owner-only access before adding its private local connection.")
+            Text("Make only this file readable and writable by you (0600), then continue setup. The permission change does not edit its contents, change ownership, or affect the folder or other files.")
+            Text("The file stays private after disconnect. Existing settings and hooks are preserved; conflicting collectors or policy still block setup.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button("Cancel") { integration.cancelPermissionChange() }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Make private and continue") { integration.approvePermissionChange(change) }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }.padding(24).frame(width: 480).background(.background)
     }
 }
 

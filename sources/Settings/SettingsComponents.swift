@@ -302,9 +302,21 @@ extension DescribedRow where Trailing == EmptyView {
 }
 
 extension Client {
-    var shortTitle: String { self == .cli ? "Copilot CLI" : "VS Code" }
-    var symbol: String { self == .cli ? "terminal" : "chevron.left.forwardslash.chevron.right" }
-    var openTitle: String { self == .cli ? "Open Terminal" : "Open VS Code" }
+    var shortTitle: String { self == .vscode ? "VS Code" : title }
+    var symbol: String {
+        switch surface {
+        case .cli: return "terminal"
+        case .editor: return "chevron.left.forwardslash.chevron.right"
+        case .desktop: return "desktopcomputer"
+        }
+    }
+    var openTitle: String {
+        switch surface {
+        case .cli: return "Open Terminal"
+        case .editor: return "Open VS Code"
+        case .desktop: return "Open Claude"
+        }
+    }
 }
 
 extension SessionSignal {

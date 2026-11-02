@@ -29,7 +29,7 @@ extension CacheInputCoverage {
 }
 
 extension TokenBreakdown {
-    static let usageNotice = "Estimated local usage. For official usage and billing, check GitHub or your enterprise dashboard."
+    static let usageNotice = "Estimated local usage, not billing. Check your provider for official usage."
     var inlineDetails: String {
         unverifiedCalls > 0 ? "\(read.details) \(write.details)" : details
     }
@@ -38,8 +38,25 @@ extension TokenBreakdown {
         if unverifiedCalls > 0 {
             return "\(unverifiedCalls.formatted()) legacy calls retain their original counts; input and cache may overlap. Not a verified unique-token total or cost estimate."
         }
-        return "Observed total: runtime inclusive input + output, with cache tokens counted once. Not cost weighted." +
+        return "Observed total: noncached input + output + reported cache reads and writes, counted once. Not cost weighted." +
             (isIncomplete ? " Input breakdown incomplete: remaining input includes any unreported cache activity." : "")
+    }
+
+}
+
+struct EstimatedCostRow: View {
+    let coverage: EstimatedCostCoverage
+    var body: some View {
+        LabeledContent("Claude estimated cost") {
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(coverage.value.map {
+                    (Decimal($0) / 1_000_000).formatted(.currency(code: "USD").precision(.fractionLength(2...6)))
+                } ?? "Not reported")
+                Text("\(coverage.reportedCalls) of \(coverage.calls) Claude calls reported cost")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .help("Reported estimated API cost, rounded to the nearest millionth of a US dollar. Not subscription spend or remaining allowance. Missing costs are not free.")
     }
 }
 
@@ -109,10 +126,12 @@ struct TokenMixBar: View {
 struct UsageTabView: View {
     @ObservedObject var model: TokenotchModel
     @ObservedObject private var history: HistoryController
+    @ObservedObject private var claude: ClaudeCodeIntegrationController
 
     init(model: TokenotchModel) {
         self.model = model
         history = model.history
+        claude = model.claude
     }
 
     var todayUsage: NotchPresentation { NotchPresentation(model: model, range: .today) }
@@ -120,6 +139,10 @@ struct UsageTabView: View {
     var body: some View {
         let usage = todayUsage
         Form {
+            Section {
+                UsageProviderPicker(history: history)
+                UsageSourcePicker(selection: $history.selectedSource, provider: history.selectedProvider)
+            }
             if let message = model.notificationNavigationMessage {
                 Section {
                     LabeledContent {
@@ -135,9 +158,17 @@ struct UsageTabView: View {
             if let detail = model.liveUsageDetail {
                 LiveSnapshotSection(model: model, detail: detail)
             }
-            AccountQuotaSection(model: model)
+            if (history.selectedSource?.provider ?? history.selectedProvider) != .claudeCode &&
+                (history.selectedProvider == .copilot || model.accountConnectionEnabled ||
+                 history.knownProviders.contains(.copilot) || history.knownProviders.isEmpty) {
+                AccountQuotaSection(model: model)
+            }
+            if (history.selectedSource?.provider ?? history.selectedProvider) != .copilot &&
+                (model.claude.enabled || history.selectedProvider == .claudeCode) {
+                ClaudeQuotaSection(model: model, integration: model.claude)
+            }
             TodayUsageSection(model: model, presentation: usage)
-            AttentionSection(model: model, attention: model.attention)
+            if history.selectedProvider != .claudeCode { AttentionSection(model: model, attention: model.attention) }
             LiveSessionsSection(model: model)
             if !usage.allModelRows.isEmpty {
                 Section {
@@ -153,6 +184,35 @@ struct UsageTabView: View {
         }
         .formStyle(.grouped)
         .id(model.usageNavigation)
+    }
+}
+
+struct ClaudeQuotaSection: View {
+    @ObservedObject var model: TokenotchModel
+    @ObservedObject var integration: ClaudeCodeIntegrationController
+
+    var body: some View {
+        Section {
+            if let snapshot = integration.statusLineState.latest, !snapshot.quotas.isEmpty {
+                ForEach(snapshot.quotas) { quota in
+                    ClaudeQuotaMeter(quota: quota, observedAt: snapshot.observedAt, now: model.clock)
+                }
+                Text("Last reported \(snapshot.observedAt.formatted(.relative(presentation: .named)))")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text(integration.statusLineEnabled ? "Quota not reported" : "Quota & context are off")
+                Text("Subscription limits appear when Claude includes them after an API response. Missing limits are not zero usage.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let error = integration.statusLineError {
+                Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(SettingsStyle.caution)
+            }
+            Button("Open Claude Connections") { model.settingsTab = .connections }
+        } header: {
+            Text("Claude plan")
+        } footer: {
+            SettingsFootnote("Reported by the local Claude CLI status line, not calculated from tokens or estimated cost. No credentials are read. Idle readings become stale; a reset does not imply zero usage.")
+        }
     }
 }
 
@@ -374,6 +434,11 @@ struct TodayUsageSection: View {
                                                 cacheRead: totals.cacheInput, cacheWrite: totals.cacheWrite),
                             help: totals.breakdown.details)
                     .padding(.vertical, 2)
+                if presentation.provider == .claudeCode { EstimatedCostRow(coverage: totals.costCoverage) }
+                if presentation.provider == .claudeCode {
+                    Text("Activity and attention are unavailable. Quota and context use the optional Claude status line; calls do not imply working or successful sessions.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if presentation.usageSource == .live && presentation.tokensPartial {
                     Label("Sample limit reached. Today's totals are partial.", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundStyle(SettingsStyle.caution)
@@ -391,12 +456,21 @@ struct TodayUsageSection: View {
                     }
                 }
             }
+            if let warning = presentation.metricsWarning {
+                LabeledContent {
+                    Button("Open Connections") { model.settingsTab = .connections }
+                } label: {
+                    Label(warning, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(SettingsStyle.caution)
+                }
+            }
         } header: {
             HStack {
                 Text("Today")
                 Spacer()
                 UsageSourcePicker(selection: Binding(get: { model.history.selectedSource },
-                                                     set: { model.history.selectedSource = $0 }), compact: true)
+                                                     set: { model.history.selectedSource = $0 }), compact: true,
+                                  provider: model.history.selectedProvider)
             }
         } footer: {
             if presentation.usageSource == .saved || presentation.usageSource == .live {
@@ -453,7 +527,9 @@ struct LiveSessionsSection: View {
 
     private var rows: [LiveSessionRow] {
         var values: [String: LiveSessionRow] = [:]
-        for session in model.sessions {
+        for session in model.sessions where
+            (model.history.selectedProvider == nil || session.source.provider == model.history.selectedProvider) &&
+            (model.history.selectedSource == nil || model.history.selectedSource?.client == session.source) {
             values["\(session.source.rawValue):\(session.key)"] =
                 LiveSessionRow(source: session.source, key: session.key, session: session, metrics: nil)
         }
@@ -503,13 +579,13 @@ struct LiveSessionsSection: View {
                     Text(row.key.prefix(8)).foregroundStyle(.secondary)
                 }
                 HStack(spacing: 6) {
-                    Text(row.status(now: model.clock))
+                    Text(row.source.provider == .claudeCode ? "Usage observed; lifecycle unavailable" : row.status(now: model.clock))
                     Text(row.last.formatted(.relative(presentation: .named))).foregroundStyle(.tertiary)
                 }
                 .font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            SessionContextMeter(context: row.source == .cli ? model.insights.first { $0.id == row.key }?.context : nil,
+            SessionContextMeter(context: model.sessionContext(source: row.source, hash: row.key),
                                 source: row.source, now: model.clock)
                 .frame(width: 130)
             if let tokens = row.metrics?.tokens {
@@ -551,7 +627,7 @@ struct SelectedSessionSection: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("\(target.source.shortTitle) session \(target.noticeSessionID.prefix(6))").font(.headline)
                     Text(model.sessions.first(where: { $0.source == target.source && $0.key == target.liveHash })?
-                        .label(now: model.clock) ?? "Not currently observed")
+                        .label(now: model.clock) ?? (target.source.provider == .claudeCode ? "Activity unavailable" : "Not currently observed"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -567,7 +643,8 @@ struct SelectedSessionSection: View {
             if target.source == .cli, let insight = model.insights.first(where: { $0.id == target.liveHash }) {
                 SessionInsightView(insight: insight, now: model.clock)
             } else {
-                SessionContextMeter(context: nil, source: target.source, now: model.clock)
+                SessionContextMeter(context: model.sessionContext(source: target.source, hash: target.liveHash),
+                                    source: target.source, now: model.clock)
             }
             HStack {
                 Button(target.source.openTitle) { model.openClient(target.source) }
@@ -636,7 +713,8 @@ struct ModelUsageTable: View {
         ], rows: models) { item, column in
             switch column {
             case 0:
-                Text(item.title).lineLimit(1).truncationMode(.middle)
+                Text(Set(models.map(\.provider)).count > 1 ? "\(item.provider.title): \(item.title)" : item.title)
+                    .lineLimit(1).truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .help(item.breakdown.details)
             case 1: Text(item.calls.formatted()).foregroundStyle(.secondary)

@@ -10,20 +10,25 @@ struct HistoryNavigation {
     let model: String?
 }
 
+struct HistoryQueryScope {
+    let provider: UsageProvider?
+    let source: UsageSource?
+}
+
 // Mutable state is confined to queue; callbacks only publish on the main actor.
 private final class HistoryWorker: @unchecked Sendable {
     let queue = DispatchQueue(label: "io.github.rottathiago.tokenotch.history", qos: .utility)
     let root: URL
     var store: UsageHistoryStore?
     var active = false
-    var since = Date.distantFuture
+    var windows = RecordingWindows<UsageSource>()
     var lastHeartbeat = Date()
-    var pending: [ActivityEvent] = []
+    var pending: [(id: UUID, event: ActivityEvent)] = []
     var flushScheduled = false
     var needsGap = false
-    var sources: Set<UsageSource> = [.cli]
+    var sources: Set<UsageSource> { windows.keys }
     var importID: UUID?
-    var onCommit: ((Int) -> Void)?
+    var onCommit: (([UUID]) -> Void)?
     var onError: ((Error) -> Void)?
     init(root: URL) { self.root = root }
 
@@ -37,13 +42,13 @@ private final class HistoryWorker: @unchecked Sendable {
         guard !pending.isEmpty else { return }
         guard let store else { throw HistoryError.storage }
         let batch = pending
-        try store.record(batch)
+        try store.record(batch.map(\.event))
         pending.removeAll(keepingCapacity: true)
-        onCommit?(batch.count)
+        onCommit?(batch.map(\.id))
     }
-    func accept(_ event: ActivityEvent) {
-        guard active, sources.contains(event.usageSource), event.timestamp >= since else { onCommit?(1); return }
-        pending.append(event)
+    func accept(_ event: ActivityEvent, id: UUID) {
+        guard active, windows.accepts(event.usageSource, at: event.timestamp) else { onCommit?([id]); return }
+        pending.append((id, event))
         do {
             if pending.count >= 50 { try flush() }
             if !flushScheduled {
@@ -59,6 +64,22 @@ private final class HistoryWorker: @unchecked Sendable {
         try flush()
         if active { try store?.heartbeat(from: lastHeartbeat, to: now, active: false, sources: sources) }
         active = false
+        windows.update([], at: now)
+        lastHeartbeat = now
+    }
+    func configure(sources: Set<UsageSource>, now: Date) throws {
+        try flush()
+        let previous = windows.keys
+        if active {
+            let retained = previous.intersection(sources)
+            let removed = previous.subtracting(sources)
+            if !retained.isEmpty { try store?.heartbeat(from: lastHeartbeat, to: now, active: true, sources: retained) }
+            if !removed.isEmpty { try store?.heartbeat(from: lastHeartbeat, to: now, active: false, sources: removed) }
+        }
+        let added = sources.subtracting(previous)
+        if !added.isEmpty { try store?.heartbeat(from: now, to: now, active: true, sources: added) }
+        windows.update(sources, at: now)
+        active = !sources.isEmpty
         lastHeartbeat = now
     }
 }
@@ -73,6 +94,8 @@ final class HistoryController: ObservableObject {
         didSet { refreshNotchSummary(now: Date()) }
     }
     @Published private(set) var recording = false
+    @Published private(set) var recordingSources: Set<UsageSource> = []
+    var recordingProviders: Set<UsageProvider> { Set(recordingSources.map(\.provider)) }
     @Published private(set) var notchSummary: NotchHistorySummary?
     @Published private(set) var comparison: HistoryInsightComparison?
     @Published var selectedEvidence: HistoryInsightEvidence?
@@ -83,9 +106,23 @@ final class HistoryController: ObservableObject {
     @Published private(set) var notchTimeline: UsageTimeline?
     @Published private(set) var notchLoading = true
     @Published private(set) var notchAnchor: Date?
+    @Published private(set) var knownProviders: Set<UsageProvider> = []
+    @Published var selectedProvider: UsageProvider? = .copilot {
+        didSet {
+            guard selectedProvider != oldValue else { return }
+            if let selectedSource, let selectedProvider, selectedSource.provider != selectedProvider {
+                self.selectedSource = nil
+            }
+            clearNotchSummary()
+            refreshNotchSummary(now: Date())
+        }
+    }
     @Published var selectedSource: UsageSource? {
         didSet {
             guard selectedSource != oldValue else { return }
+            if let selectedSource, let selectedProvider, selectedSource.provider != selectedProvider {
+                self.selectedProvider = selectedSource.provider
+            }
             clearNotchSummary()
             refreshNotchSummary(now: Date())
         }
@@ -104,15 +141,24 @@ final class HistoryController: ObservableObject {
     private var available = false
     private var availableSources: Set<UsageSource> = []
     private var generation = UUID()
-    private var outstanding = 0
+    private var outstanding = Set<UUID>()
     private var failed = false
     private let log = Logger(subsystem: "io.github.rottathiago.tokenotch", category: "history")
 
     init(defaults: UserDefaults, root: URL) {
         self.defaults = defaults
         worker = HistoryWorker(root: root)
-        enabled = defaults.bool(forKey: "usageHistoryEnabled")
+        ProviderRecordingConsent.migrateCopilot(in: defaults)
+        enabled = ProviderRecordingConsent.enabled(.usageHistory, provider: .copilot, in: defaults)
         zone = defaults.string(forKey: "usageHistoryZone") ?? TimeZone.current.identifier
+        worker.onCommit = { [weak self] ids in
+            Task { @MainActor in
+                guard let self else { return }
+                let committed = self.outstanding.intersection(ids)
+                self.outstanding.subtract(ids)
+                if self.started && !committed.isEmpty { self.revision += 1 }
+            }
+        }
     }
 
     func start(available: Bool) {
@@ -121,28 +167,43 @@ final class HistoryController: ObservableObject {
         availableSources = available ? [.cli] : []
         configure()
     }
-    func setEnabled(_ value: Bool) {
-        enabled = value
-        defaults.set(value, forKey: "usageHistoryEnabled")
+    func setEnabled(_ value: Bool, provider: UsageProvider = .copilot) {
+        if provider == .copilot { enabled = value }
+        ProviderRecordingConsent.setEnabled(value, kind: .usageHistory, provider: provider, in: defaults)
         if value, defaults.string(forKey: "usageHistoryZone") == nil {
             zone = TimeZone.current.identifier
             defaults.set(zone, forKey: "usageHistoryZone")
         }
         configure()
     }
+    func isEnabled(_ provider: UsageProvider) -> Bool {
+        ProviderRecordingConsent.enabled(.usageHistory, provider: provider, in: defaults)
+    }
+    var selectionEnabled: Bool {
+        if let provider = selectedSource?.provider ?? selectedProvider { return isEnabled(provider) }
+        return UsageProvider.allCases.contains { isEnabled($0) }
+    }
+    var selectionRecording: Bool {
+        recordingSources.contains {
+            (selectedProvider == nil || $0.provider == selectedProvider) && (selectedSource == nil || $0 == selectedSource)
+        }
+    }
     func setAvailable(_ value: Bool) {
-        setAvailableSources(value ? [.cli] : [])
+        var sources = availableSources
+        if value { sources.insert(.cli) } else { sources.remove(.cli) }
+        setAvailableSources(sources)
     }
     func setAvailableSources(_ sources: Set<UsageSource>) {
         guard availableSources != sources else { return }
         availableSources = sources
-        available = !sources.isEmpty
+        available = sources.contains { $0.provider == .copilot }
         configure()
     }
     func retry() { configure() }
 
     func markGap(sources: Set<UsageSource>) {
-        guard recording else { return }
+        let sources = sources.intersection(recordingSources)
+        guard !sources.isEmpty else { return }
         worker.queue.async {
             do { try self.worker.store?.markGap(at: Date(), sources: sources) }
             catch { self.worker.fail(error) }
@@ -163,22 +224,25 @@ final class HistoryController: ObservableObject {
         navigation = HistoryNavigation(range: range, anchor: anchor, model: model)
     }
 
-    private func configure() {
-        clearNotchSummary()
+    private func configure(refreshPresentation: Bool = true) {
+        if refreshPresentation || failed { clearNotchSummary() }
         let id = UUID()
         generation = id
-        outstanding = 0
-        recording = false
         failed = false
         error = nil
-        let collect = enabled && available
-        let wantsHistory = enabled
+        let enabledProviders = Set(UsageProvider.allCases.filter {
+            ProviderRecordingConsent.enabled(.usageHistory, provider: $0, in: defaults)
+        })
+        let wantsHistory = !enabledProviders.isEmpty
         let zoneName = zone
-        let sources = availableSources
+        let sources = availableSources.filter { enabledProviders.contains($0.provider) }
+        recordingSources.formIntersection(sources)
+        recording = recordingSources.contains { $0.provider == .copilot }
+        let collect = sources.contains { $0.provider == .copilot }
         status = enabled ? (available ? "Starting history recording" : "Paused: connect a usage source") : "History paused; saved data is retained"
         worker.queue.async { [self] in
             do {
-                try self.worker.stop(now: Date())
+                let now = Date()
                 if self.worker.store == nil {
                     let exists = FileManager.default.fileExists(atPath: self.worker.root.appendingPathComponent("history/usage.sqlite").path)
                     if wantsHistory || exists {
@@ -190,13 +254,7 @@ final class HistoryController: ObservableObject {
                     try self.worker.store?.markGap(at: self.worker.lastHeartbeat, sources: self.worker.sources)
                     try self.worker.store?.markGap(at: Date(), sources: self.worker.sources)
                     self.worker.needsGap = false
-                }
-                self.worker.onCommit = { [weak self] count in
-                    Task { @MainActor in
-                        guard let self, self.generation == id else { return }
-                        self.outstanding = max(0, self.outstanding - count)
-                        self.revision += 1
-                    }
+                    self.worker.windows.update([], at: now)
                 }
                 self.worker.onError = { [weak self] error in
                     Task { @MainActor in
@@ -204,18 +262,15 @@ final class HistoryController: ObservableObject {
                         self.report(error)
                     }
                 }
-                self.worker.since = Date()
-                self.worker.sources = sources
-                self.worker.lastHeartbeat = self.worker.since
-                self.worker.active = collect
-                if collect {
-                    try self.worker.store?.heartbeat(from: self.worker.since, to: self.worker.since, active: true, sources: sources)
-                }
+                try self.worker.configure(sources: sources, now: now)
                 let savedZone = self.worker.store?.clock.calendar.timeZone.identifier
+                let savedProviders = Set(try self.worker.store?.recordingCoverage().sources.map(\.provider) ?? [])
                 Task { @MainActor in
                     guard self.generation == id else { return }
                     if let savedZone { self.zone = savedZone }
                     self.recording = collect
+                    self.recordingSources = sources
+                    self.knownProviders = savedProviders.union(self.availableSources.map(\.provider))
                     if collect { self.status = "Recording observed usage locally" }
                     self.revision += 1
                 }
@@ -230,23 +285,25 @@ final class HistoryController: ObservableObject {
     }
 
     func observe(_ event: ActivityEvent) {
-        guard !event.kind.isAttention, enabled, availableSources.contains(event.usageSource), recording, !failed else { return }
-        guard outstanding < 256 else {
+        guard !event.kind.isAttention, recordingSources.contains(event.usageSource), !failed else { return }
+        guard outstanding.count < 256 else {
             report(HistoryError.queueFull)
             worker.queue.async {
                 do {
+                    let sources = self.worker.sources
                     try self.worker.stop(now: Date())
-                    try self.worker.store?.markGap(at: Date(), sources: self.worker.sources)
+                    try self.worker.store?.markGap(at: Date(), sources: sources)
                 } catch { self.worker.fail(error) }
             }
             return
         }
-        outstanding += 1
-        worker.queue.async { self.worker.accept(event) }
+        let id = UUID()
+        outstanding.insert(id)
+        worker.queue.async { self.worker.accept(event, id: id) }
     }
 
     func tick(now: Date) {
-        guard recording, !failed else {
+        guard !recordingSources.isEmpty, !failed else {
             refreshNotchSummary(now: now)
             return
         }
@@ -265,13 +322,16 @@ final class HistoryController: ObservableObject {
         }
     }
 
-    func read(_ interval: DateInterval, model: String?) async throws -> HistorySnapshot? {
-        let source = selectedSource
+    func read(_ interval: DateInterval, model: String?, provider: UsageProvider? = nil,
+              scope: HistoryQueryScope? = nil) async throws -> HistorySnapshot? {
+        try Task.checkCancellation()
+        let selection = scope ?? HistoryQueryScope(provider: provider ?? selectedProvider, source: selectedSource)
         return try await withCheckedThrowingContinuation { continuation in
             worker.queue.async {
                 do {
                     try self.worker.flush()
-                    continuation.resume(returning: try self.worker.store?.query(interval, model: model, source: source))
+                    continuation.resume(returning: try self.worker.store?.query(interval, model: model,
+                        source: selection.source, provider: selection.provider))
                 } catch {
                     self.worker.fail(error)
                     continuation.resume(throwing: error)
@@ -404,11 +464,13 @@ final class HistoryController: ObservableObject {
         clearNotchSummary()
         generation = UUID()
         let id = generation
-        outstanding = 0
+        outstanding.removeAll()
         recording = false
+        recordingSources = []
         status = "Deleting usage history"
         worker.queue.async {
             self.worker.active = false
+            self.worker.windows.update([], at: Date())
             self.worker.pending = []
             self.worker.importID = nil
             do {
@@ -421,6 +483,7 @@ final class HistoryController: ObservableObject {
                     self.revision += 1
                     self.configure()
                 }
+
             } catch {
                 Task { @MainActor in
                     guard self.generation == id else { return }
@@ -430,9 +493,29 @@ final class HistoryController: ObservableObject {
         }
     }
 
+    func delete(provider: UsageProvider) {
+        discardImportPreview()
+        navigation = nil
+        clearNotchSummary()
+        recordingSources = recordingSources.filter { $0.provider != provider }
+        worker.queue.async {
+            do {
+                try self.worker.flush()
+                try self.worker.store?.delete(provider: provider)
+                self.worker.windows.update(self.worker.sources.filter { $0.provider != provider }, at: Date())
+                Task { @MainActor in
+                    self.revision += 1
+                    self.configure()
+                }
+            } catch { self.worker.fail(error) }
+        }
+    }
+
     func stop() {
         cancelImport()
         started = false
+        recording = false
+        recordingSources = []
         summaryTask?.cancel()
         worker.queue.sync {
             do { try worker.stop(now: Date()) }
@@ -444,7 +527,8 @@ final class HistoryController: ObservableObject {
         clearNotchSummary()
         failed = true
         recording = false
-        outstanding = 0
+        recordingSources = []
+        outstanding.removeAll()
         error = (failure as? HistoryError)?.rawValue
             ?? (failure as? TokenotchError)?.rawValue ?? HistoryError.storage.rawValue
         status = "History unavailable; recording paused"
@@ -468,6 +552,7 @@ final class HistoryController: ObservableObject {
     private func readComparison(now: Date, calendar: HistoryCalendar, range: HistoryRange) async throws
         -> (HistorySnapshot?, HistoryInsightComparison?, HistorySnapshot?, HistorySnapshot?, UsageTimeline?) {
         let source = selectedSource
+        let provider = selectedProvider
         return try await withCheckedThrowingContinuation { continuation in
             worker.queue.async {
                 do {
@@ -477,15 +562,15 @@ final class HistoryController: ObservableObject {
                         return
                     }
                     let periods = HistoryInsightComparison.periods(now: now, calendar: calendar)
-                    let summary = try store.query(NotchHistorySummary.interval(now: now, calendar: calendar), source: source)
-                    let comparison = try HistoryInsightComparison(current: store.query(periods.0, source: source),
-                        previous: store.query(periods.1, source: source), now: now)
-                    let today = try store.query(calendar.interval(.today, selected: now, now: now), source: source)
+                    let summary = try store.query(NotchHistorySummary.interval(now: now, calendar: calendar), source: source, provider: provider)
+                    let comparison = try HistoryInsightComparison(current: store.query(periods.0, source: source, provider: provider),
+                        previous: store.query(periods.1, source: source, provider: provider), now: now)
+                    let today = try store.query(calendar.interval(.today, selected: now, now: now), source: source, provider: provider)
                     let usage = try range == .today ? today
-                        : store.query(calendar.interval(range, selected: now, now: now), source: source)
+                        : store.query(calendar.interval(range, selected: now, now: now), source: source, provider: provider)
                     if range == .week { try store.pruneHourlyHistory(now: now) }
                     let timeline = try range == .today
-                        ? store.hourlyTimeline(now: now, source: source) : UsageTimeline.week(snapshot: usage, now: now)
+                        ? store.hourlyTimeline(now: now, source: source, provider: provider) : UsageTimeline.week(snapshot: usage, now: now)
                     continuation.resume(returning: (summary, comparison, today, usage, timeline))
                 } catch {
                     self.worker.fail(error)
@@ -502,7 +587,7 @@ final class HistoryController: ObservableObject {
             return
         }
         let calendar = HistoryCalendar(zone: timeZone)
-        let key = "\(generation)|\(revision)|\(zone)|\(calendar.hour(containing: now).start)|\(notchRange.rawValue)|\(selectedSource?.rawValue ?? "all")"
+        let key = "\(generation)|\(revision)|\(zone)|\(calendar.hour(containing: now).start)|\(notchRange.rawValue)|\(selectedProvider?.rawValue ?? "all")|\(selectedSource?.rawValue ?? "all")"
         guard summaryKey != key else { return }
         if let notchAnchor, calendar.key(notchAnchor) != calendar.key(now) {
             todayUsage = nil

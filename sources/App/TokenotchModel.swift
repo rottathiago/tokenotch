@@ -9,6 +9,8 @@ struct TokenotchOptions: Codable {
     var notifications = NotificationPreferences()
     var healthEnabled = false
     var showNotch = true
+    var showCopilotBadge = true
+    var showClaudeNotch = true
     var autoHideNotch = true
     var allDisplays = false
     var edge = "right"
@@ -19,7 +21,7 @@ struct TokenotchOptions: Codable {
     var timeFormat: TimeFormat = .twentyFourHour
 
     private enum CodingKeys: String, CodingKey {
-        case notifications, healthEnabled, showNotch, autoHideNotch, allDisplays
+        case notifications, healthEnabled, showNotch, showCopilotBadge, showClaudeNotch, autoHideNotch, allDisplays
         case edge, scale, displayID, foldsForFullScreen, offsets, timeFormat
     }
 
@@ -30,6 +32,8 @@ struct TokenotchOptions: Codable {
         notifications = try values.decode(NotificationPreferences.self, forKey: .notifications)
         healthEnabled = try values.decode(Bool.self, forKey: .healthEnabled)
         showNotch = try values.decode(Bool.self, forKey: .showNotch)
+        showCopilotBadge = try values.decodeIfPresent(Bool.self, forKey: .showCopilotBadge) ?? true
+        showClaudeNotch = try values.decodeIfPresent(Bool.self, forKey: .showClaudeNotch) ?? true
         // Older preferences had no idle-collapse setting.
         autoHideNotch = try values.decodeIfPresent(Bool.self, forKey: .autoHideNotch) ?? true
         allDisplays = try values.decode(Bool.self, forKey: .allDisplays)
@@ -54,7 +58,7 @@ enum SettingsTab {
 
 @MainActor
 final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
-    let updates = ReleaseUpdateController()
+    let updates: ReleaseUpdateController
     @Published var showOnboarding = false
     @Published private(set) var onboardingComplete: Bool
     @Published private(set) var onboarding: OnboardingProgress
@@ -99,6 +103,7 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
     @Published private(set) var insights: [SessionInsight] = []
     let history: HistoryController
     let vscode: VSCodeIntegrationController
+    let claude: ClaudeCodeIntegrationController
     let timeline: SessionTimelineController
     let attention: SessionAttentionController
     @Published var cliExecutable: String {
@@ -153,6 +158,7 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
 
     init(defaults: UserDefaults, root: URL = PrivateFiles.root,
          installation: HookInstallation? = nil, bundleURL: URL = Bundle.main.bundleURL,
+         claudeIntegration: ClaudeCodeIntegrationController? = nil,
          openSetupURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
          playNotificationSound: @escaping () -> Bool = {
              guard let sound = NSSound(named: "Glass") else { return false }
@@ -167,6 +173,7 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
              try await UNUserNotificationCenter.current().add($0)
          }) {
         self.defaults = defaults
+        updates = ReleaseUpdateController(defaults: defaults)
         onboardingComplete = defaults.bool(forKey: "onboardingComplete.v1")
         onboarding = OnboardingProgress(defaults: defaults)
         self.root = root
@@ -176,17 +183,38 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
         self.postNotification = postNotification
         history = HistoryController(defaults: defaults, root: root)
         vscode = VSCodeIntegrationController(defaults: defaults, root: root, openSetupURL: openSetupURL)
+        claude = claudeIntegration ?? ClaudeCodeIntegrationController(defaults: defaults, root: root)
         timeline = SessionTimelineController(defaults: defaults, root: root)
         attention = SessionAttentionController(defaults: defaults, root: root)
         cliExecutable = defaults.string(forKey: "copilotExecutable") ?? Self.detectCLI()
         bridge = LocalBridge(root: root)
         self.installation = installation ?? HookInstallation(root: root)
         super.init()
-        sourceSubscription = history.$selectedSource.sink { [weak self] source in
-            self?.liveUsageDetail = nil
-            self?.updateTokenMetrics(now: Date(), source: source)
+        updates.onAvailable = { [weak self] release in
+            self?.deliver(Notice(id: "update:\(release.tag)", category: .update,
+                title: "Tokenotch \(release.tag) is available",
+                body: "Open Updates to review the official download. Installation is manual."))
         }
-        vscode.onBatch = { [weak self] batch in self?.receiveTelemetry(batch) }
+        sourceSubscription = history.$selectedSource.combineLatest(history.$selectedProvider).sink { [weak self] source, provider in
+            self?.liveUsageDetail = nil
+            self?.selectedSession = nil
+            self?.updateTokenMetrics(now: Date(), source: source, provider: provider)
+        }
+        vscode.onBatch = { [weak self] batch in self?.receiveTelemetry(batch, provider: .copilot) }
+        claude.onBatch = { [weak self] batch in self?.receiveTelemetry(batch, provider: .claudeCode) }
+        claude.onStatusLine = { [weak self] in self?.updateTokenMetrics(now: Date()) }
+        claude.onSessionChange = { [weak self] in self?.updateTokenMetrics(now: Date()) }
+        claude.onAvailability = { [weak self] in
+            guard let self else { return }
+            self.history.setAvailableSources(self.historySources)
+            self.timeline.setAvailable(self.timelineClients)
+            if self.claude.ready && !self.defaults.bool(forKey: "twoProviderOverviewInitialized") {
+                self.defaults.set(true, forKey: "twoProviderOverviewInitialized")
+                self.history.selectedProvider = nil
+                self.timeline.selectedProvider = nil
+            }
+        }
+        claude.onCoverageGap = { [weak self] sources in self?.history.markGap(sources: sources) }
         vscode.onAvailability = { [weak self] _ in
             guard let self else { return }
             self.history.setAvailableSources(self.historySources)
@@ -219,6 +247,18 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
                 bridge.onEvent = { [weak self] event in
                     Task { @MainActor in self?.receive(event) }
                 }
+                bridge.onClaudeStatusLine = { [weak self] snapshot in
+                    Task { @MainActor in
+                        guard let self, !self.managedHooksDisabled else { return }
+                        self.claude.receiveStatusLine(snapshot)
+                    }
+                }
+                bridge.onClaudeSession = { [weak self] event in
+                    Task { @MainActor in
+                        guard let self, !self.managedHooksDisabled else { return }
+                        self.claude.receiveSession(event)
+                    }
+                }
                 bridge.onFailure = { [weak self] error in
                     Task { @MainActor in
                         self?.timeline.markInterruption()
@@ -233,7 +273,8 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
             Task { @MainActor in self?.tick() }
         }
         history.start(available: cliHistoryAvailable)
-        if !managedHooksDisabled { vscode.start() }
+        if !managedHooksDisabled { vscode.start(); claude.start() }
+        claude.account.refresh(configurationRoot: claude.configurationRoot)
         timeline.start(clients: timelineClients)
         tick()
     }
@@ -247,6 +288,8 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
         accountRuntime?.cancel()
         bridge.stop()
         vscode.stop()
+        claude.stop()
+        claude.account.stop()
         history.stop()
         timeline.stop()
     }
@@ -272,6 +315,9 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
 
     private func tick() {
         clock = Date()
+        updates.poll(now: clock)
+        claude.tick()
+        claude.account.refresh(configurationRoot: claude.configurationRoot)
         activity.expire(now: clock)
         lifecycleActivity.expire(now: clock)
         updateTokenMetrics(now: clock)
@@ -288,7 +334,7 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
             } catch { storageReady = false; report(.storage) }
         }
 
-        for client in Client.allCases {
+        for client in Client.copilotCases {
             if let date = lastEvent[client], clock.timeIntervalSince(date) > 300 {
                 connection[client] = "No recent events; coverage unknown"
             }
@@ -368,35 +414,97 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
     }
 
     private func updateTokenMetrics(now: Date) {
-        updateTokenMetrics(now: now, source: history.selectedSource)
+        updateTokenMetrics(now: now, source: history.selectedSource, provider: history.selectedProvider)
     }
 
-    private func updateTokenMetrics(now: Date, source: UsageSource?) {
+    private func updateTokenMetrics(now: Date, source: UsageSource?, provider: UsageProvider?) {
         clock = now
         if liveUsageDetail?.isExpired(now: now) == true { liveUsageDetail = nil }
         tokenLedger.expire(now: now)
-        var filtered = tokenLedger.filtered(source)
+        var filtered = provider.map { tokenLedger.filtered(provider: $0) } ?? tokenLedger
+        filtered = filtered.filtered(source)
         tokenTotals = filtered.totals
         todayTokenTotals = filtered.today(now: now)
         modelTokenTotals = filtered.byModel
         todayModelTokenTotals = filtered.todayByModel(now: now)
         let timeline = filtered.hourlyTimeline(now: now)
         if todayTimeline != timeline { todayTimeline = timeline }
-        sessionMetrics = filtered.bySession
+        sessionMetrics = claude.sessionState.visible(
+            claude.statusLineState.merging(filtered.bySession, provider: provider, source: source, now: now))
         tokenSampleLimitReached = tokenLedger.lastDiscardedAt != nil
     }
 
-    private func receiveTelemetry(_ batch: TelemetryBatch) {
-        guard !managedHooksDisabled, vscode.enabled else { return }
+    func liveLedger(provider: UsageProvider?, source: UsageSource? = nil) -> TokenLedger {
+        let ledger = provider.map { tokenLedger.filtered(provider: $0) } ?? tokenLedger
+        return ledger.filtered(source)
+    }
+
+    func liveSessionMetrics(provider: UsageProvider?, source: UsageSource? = nil) -> [ObservedSessionMetrics] {
+        claude.sessionState.visible(
+            claude.statusLineState.merging(liveLedger(provider: provider, source: source).bySession,
+                                         provider: provider, source: source, now: clock))
+    }
+
+    func sessionContext(source: Client, hash: String?) -> ObservedContext? {
+        guard let hash else { return nil }
+        if source == .cli { return insights.first { $0.id == hash }?.context }
+        return liveSessionMetrics(provider: source.provider).first {
+            $0.id == hash && $0.source.client == source
+        }?.context
+    }
+
+    func enableClaudeStatusLine() {
+        guard !managedHooksDisabled else { report(.unavailable); return }
+        claude.enableStatusLine(bundledHelper: bundleURL.appendingPathComponent("Contents/Helpers/TokenotchHook"))
+    }
+
+    func enableClaudeSessionTracking() {
+        guard !managedHooksDisabled else { report(.unavailable); return }
+        claude.enableSessionTracking(bundledHelper: bundleURL.appendingPathComponent("Contents/Helpers/TokenotchHook"))
+    }
+
+    private func receiveTelemetry(_ batch: TelemetryBatch, provider: UsageProvider) {
+        guard !managedHooksDisabled,
+              provider == .copilot ? vscode.enabled : claude.enabled else { return }
         let now = Date()
         for event in batch.events {
             do {
+                guard event.provider == provider,
+                      provider != .claudeCode || claude.collectingSources.contains(event.usageSource) else { throw TokenotchError.invalidEvent }
                 try tokenLedger.observe(event, now: now, allowingDelayed: true)
                 history.observe(event)
                 if event.metricSessionReported != false { timeline.observe(event) }
             } catch { report(.invalidEvent) }
         }
+
         updateTokenMetrics(now: now)
+    }
+
+    func configureClaude(configurationRoot: URL, policyReviewed: Bool) {
+        guard !managedHooksDisabled else { report(.unavailable); return }
+        claude.configure(configurationRoot: configurationRoot, policyReviewed: policyReviewed)
+    }
+
+    var notchProviders: [UsageProvider] {
+        var providers: [UsageProvider] = []
+        let hasClaude = claude.enabled || history.knownProviders.contains(.claudeCode)
+        let hasCopilot = !hasClaude || vscode.enabled || !registeredClients.isEmpty || accountConnectionEnabled ||
+            history.knownProviders.contains(.copilot)
+        if options.showCopilotBadge && hasCopilot { providers.append(.copilot) }
+        if options.showClaudeNotch && hasClaude {
+            providers.append(.claudeCode)
+        }
+        return providers
+    }
+
+    func removeClaude() {
+        claude.remove()
+        tokenLedger.remove(.claudeCLI)
+        tokenLedger.remove(.claudeDesktop)
+        liveUsageDetail = nil
+        updateTokenMetrics(now: Date())
+        history.setAvailableSources(historySources)
+        timeline.setAvailable(timelineClients)
     }
 
     func configureVSCode(metrics: Bool) {
@@ -510,6 +618,7 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
         lifecycleActivity = ActivityState()
         tokenLedger = TokenLedger()
         vscode.clearObservations()
+        claude.clearObservations()
         sessionInsights = SessionInsights(); insights = []; contextWarnings = ContextWarningPolicy()
         updateTokenMetrics(now: Date())
         sessions = []
@@ -535,6 +644,13 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
 
     func currentTarget(_ target: SessionDetailTarget) -> SessionDetailTarget {
         var result = target
+        if target.source.provider == .claudeCode {
+            result.liveHash = liveSessionMetrics(provider: .claudeCode).first {
+                $0.sources.contains(where: { $0.client == target.source }) &&
+                    ($0.id == target.liveHash || $0.id == target.noticeSessionID)
+            }?.id
+            return result
+        }
         result.liveHash = sessions.first {
             $0.source == target.source &&
                 attention.state.sessionID(source: $0.source, hash: $0.key) == target.noticeSessionID
@@ -543,13 +659,16 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
     }
 
     private var timelineClients: Set<Client> {
+        var clients: Set<Client> = []
+        if !managedHooksDisabled { clients.formUnion(claude.collectingSources.map(\.client)) }
         guard !managedHooksDisabled, bridgeStatus != "Not started",
-              !bridgeStatus.hasPrefix("Unavailable"), !bridgeStatus.hasPrefix("Disabled") else { return [] }
+              !bridgeStatus.hasPrefix("Unavailable"), !bridgeStatus.hasPrefix("Disabled") else { return clients }
         do {
-            return Set(try Client.allCases.filter {
+            clients.formUnion(try Client.copilotCases.filter {
                 try PrivateFiles.read(root.appendingPathComponent("\($0.rawValue).registration"), limit: 128) != nil
             })
-        } catch { report(.unsafePath); return [] }
+        } catch { report(.unsafePath) }
+        return clients
     }
 
     func requestNotifications() {
@@ -583,6 +702,11 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
                        body: "Your current delivery, snooze and quiet-hour settings apply."))
     }
 
+    func setAutomaticUpdateChecks(_ enabled: Bool) {
+        if enabled { options.notifications.categories.insert(.update) }
+        updates.setAutomaticChecks(enabled)
+    }
+
     func deliver(_ notice: Notice) {
         guard storageReady else { report(.storage); return }
         let decision = ledger.evaluate(notice, preferences: options.notifications, now: Date(), managedMute: managedMute)
@@ -590,7 +714,7 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
             try PrivateFiles.write(try JSONEncoder().encode(ledger), to: root.appendingPathComponent("notifications.json"))
         } catch { storageReady = false; report(.storage); return }
         guard let decision else { return }
-        if decision.expand { expandNotch?() }
+        if decision.expand && notice.category != .update { expandNotch?() }
         if decision.sound {
             notificationSoundError = playNotificationSound() ? nil : "Sound playback failed"
             if notificationSoundError != nil { log.error("Notification sound playback failed.") }
@@ -601,7 +725,8 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
             content.body = notice.body
             // Audio is delivered independently, once per notice rather than per display.
             content.sound = nil
-            if let target = notice.target { content.userInfo = target.userInfo }
+            if notice.category == .update { content.userInfo = ["releaseUpdate": true] }
+            else if let target = notice.target { content.userInfo = target.userInfo }
             else if let source = notice.source { content.userInfo = ["source": source.rawValue] }
             Task {
                 guard await desktopNotificationsAllowed() else {
@@ -634,6 +759,11 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
     }
 
     func routeNotification(_ userInfo: [AnyHashable: Any]) {
+        if userInfo["releaseUpdate"] as? Bool == true {
+            settingsTab = .about
+            openNotificationDetails?()
+            return
+        }
         liveUsageDetail = nil
         selectedSession = nil
         showLiveSessions = false
@@ -655,6 +785,7 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
     }
 
     func openClient(_ client: Client) {
+        guard Client.activeCases.contains(client) else { report(.unavailable); return }
         let bundleID = client == .vscode && defaults.string(forKey: "vscodeURIScheme") == "vscode-insiders"
             ? "com.microsoft.VSCodeInsiders" : client.bundleID
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
@@ -667,7 +798,9 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
 
     func openUsage() { openURL("https://github.com/settings/copilot") }
     func openStatus() { openURL("https://www.githubstatus.com/") }
-    func openPricing() { openURL(NotchLayout.modelPricingURL) }
+    func openPricing(provider: UsageProvider = .copilot) {
+        openURL(provider == .copilot ? NotchLayout.modelPricingURL : "https://claude.com/pricing")
+    }
     private func openURL(_ value: String) {
         guard let url = URL(string: value), NSWorkspace.shared.open(url) else { report(.unavailable); return }
     }
@@ -690,7 +823,7 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
     }
 
     func refreshConnectionInstallations() {
-        for client in Client.allCases {
+        for client in Client.copilotCases {
             do {
                 let registered = try PrivateFiles.read(root.appendingPathComponent("\(client.rawValue).registration")) != nil
                 if registered { registeredClients.insert(client) } else { registeredClients.remove(client) }
@@ -727,8 +860,13 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
     var setupStep: OnboardingStep { onboarding.step }
 
     func isClientConfigured(_ client: Client) -> Bool {
-        !managedHooksDisabled && installedClients.contains(client)
-            && (client == .cli || (vscode.activityConfigured && !vscode.removingActivity))
+        guard !managedHooksDisabled else { return false }
+        switch client {
+        case .cli: return installedClients.contains(.cli)
+        case .vscode: return installedClients.contains(.vscode) && vscode.activityConfigured && !vscode.removingActivity
+        case .claudeCLI: return claude.enabled && claude.configured && claude.ready
+        case .claudeDesktop: return false
+        }
     }
 
     var hasOnboardingConnection: Bool { onboarding.clients.contains(where: isClientConfigured) }
@@ -967,7 +1105,7 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
     }
 
     var diagnostics: String {
-        let clients = Client.allCases.map { "\($0.rawValue): \(connection[$0] ?? "Not installed")" }.joined(separator: "\n")
+        let clients = Client.copilotCases.map { "\($0.rawValue): \(connection[$0] ?? "Not installed")" }.joined(separator: "\n")
         #if arch(arm64)
         let architecture = "arm64"
         #elseif arch(x86_64)
@@ -1019,10 +1157,40 @@ final class TokenotchModel: NSObject, ObservableObject, UNUserNotificationCenter
         catch { report(.unsafePath); return false }
     }
 
+    func signalReadiness(source: UsageSource) -> SourceSignalReadiness {
+        let metrics: SignalReadiness
+        let lifecycle: SignalReadiness
+        switch source {
+        case .cli:
+            let installed = registeredClients.contains(.cli) && !managedHooksDisabled
+            metrics = SignalReadiness(capability: .supported, enabled: installed, configured: installed,
+                                      listening: installed, observed: lastCLIUsageEvent)
+            lifecycle = SignalReadiness(capability: .supported, enabled: installed, configured: installed,
+                                        listening: installed, observed: lastActivityEvent[.cli])
+        case .vscodeLocal, .vscodeCopilot:
+            metrics = SignalReadiness(capability: .supported, enabled: vscode.enabled && !managedHooksDisabled,
+                                      configured: vscode.usageConfigured, listening: vscode.ready,
+                                      observed: vscode.lastObservation[source],
+                                      rejectedAt: vscode.lastRejectedObservation[source])
+            if source == .vscodeLocal {
+                let installed = registeredClients.contains(.vscode) && !managedHooksDisabled
+                lifecycle = SignalReadiness(capability: .supported, enabled: installed,
+                                            configured: vscode.activityConfigured, listening: installed,
+                                            observed: lastActivityEvent[.vscode])
+            } else {
+                lifecycle = SignalReadiness(capability: .unsupported)
+            }
+        case .claudeCLI, .claudeDesktop:
+            return claude.readiness(source)
+        }
+        return SourceSignalReadiness(source: source, metrics: metrics, lifecycle: lifecycle)
+    }
+
     private var historySources: Set<UsageSource> {
         guard !managedHooksDisabled else { return [] }
         var sources: Set<UsageSource> = cliHistoryAvailable ? [.cli] : []
         if vscode.enabled && vscode.ready { sources.formUnion([.vscodeLocal, .vscodeCopilot]) }
+        sources.formUnion(claude.collectingSources)
         return sources
     }
 }

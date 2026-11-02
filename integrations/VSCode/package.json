@@ -3,7 +3,7 @@
   "displayName": "Tokenotch Local Integration",
   "description": "Consent-based local Tokenotch setup and public settings diagnostics.",
   "icon": "icon.png",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "rottathiago",
   "private": true,
   "license": "MIT",

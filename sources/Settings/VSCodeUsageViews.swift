@@ -11,6 +11,7 @@ private final class TelemetryImportSelection: ObservableObject {
 struct UsageSourcePicker: View {
     @Binding var selection: UsageSource?
     var compact = false
+    var provider: UsageProvider? = .copilot
 
     var body: some View {
         if compact {
@@ -24,7 +25,24 @@ struct UsageSourcePicker: View {
         Picker("Source", selection: $selection) {
             Text("All sources").tag(UsageSource?.none)
             Divider()
-            ForEach(UsageSource.allCases) { source in Text(source.title).tag(Optional(source)) }
+            ForEach(provider?.activeSources ?? UsageSource.activeCases) { source in Text(source.title).tag(Optional(source)) }
+        }
+
+    }
+}
+
+struct UsageProviderPicker: View {
+    @ObservedObject var history: HistoryController
+    var compact = false
+
+    var body: some View {
+        if history.knownProviders.count > 1 {
+            Picker("Provider", selection: $history.selectedProvider) {
+                Text("All providers").tag(UsageProvider?.none)
+                ForEach(UsageProvider.allCases) { provider in Text(provider.title).tag(Optional(provider)) }
+            }
+            .pickerStyle(.menu)
+            .controlSize(compact ? .small : .regular)
         }
     }
 }

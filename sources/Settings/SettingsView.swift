@@ -99,12 +99,12 @@ struct SettingsDetail: View {
             switch model.settingsTab {
             case .usage: UsageTabView(model: model)
             case .history: UsageHistoryView(history: model.history)
-            case .sessions: SessionTimelineView(timeline: model.timeline, attention: model.attention)
+            case .sessions: SessionTimelineView(timeline: model.timeline, attention: model.attention, history: model.history)
             case .connections: ConnectionsView(model: model)
             case .notifications: NotificationSettingsView(model: model)
             case .appearance: GeneralSettingsView(model: model)
             case .privacy: PrivacySettingsView(model: model)
-            case .about: AboutSettingsView(updates: model.updates)
+            case .about: AboutSettingsView(updates: model.updates, setAutomaticChecks: model.setAutomaticUpdateChecks)
             }
         }
     }
@@ -213,6 +213,13 @@ struct NotificationSettingsView: View {
             .disabled(!model.options.notifications.enabled || model.managedMute)
 
             Section {
+                category("Tokenotch updates", "New stable releases found by daily checks, enabled in About.", .update)
+            } header: {
+                Text("App updates")
+            }
+            .disabled(!model.options.notifications.enabled || model.managedMute)
+
+            Section {
                 LabeledContent("Pause notifications") {
                     if let until = model.options.notifications.snoozedUntil, until > model.clock {
                         HStack(spacing: 8) {
@@ -275,8 +282,12 @@ struct GeneralSettingsView: View {
             Section {
                 Toggle(isOn: $model.options.showNotch) {
                     Text("Show notch")
-                    Text("An ambient Copilot indicator at the edge of your screen.")
+                    Text("Provider indicators at the edge of your screen.")
                 }
+                Toggle("Show GitHub Copilot", isOn: $model.options.showCopilotBadge)
+                Toggle("Show Claude Code when connected", isOn: $model.options.showClaudeNotch)
+                Text("Hiding a provider does not disconnect collection or pause recording.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Group {
                     Toggle(isOn: $model.options.autoHideNotch) {
                         Text("Collapse when idle")
@@ -422,15 +433,22 @@ struct PrivacySettingsView: View {
             } header: {
                 Text("Network")
             } footer: {
-                SettingsFootnote("No analytics or crash reports are sent. Check for Updates contacts GitHub only when you choose it; GitHub receives ordinary connection metadata.")
+                SettingsFootnote("No analytics or crash reports are sent. Update checks contact GitHub when you choose Check for Updates, or daily while the app is open if you enable daily checks in About. GitHub receives ordinary connection metadata.")
             }
 
             Section {
                 HistoryControls(history: model.history)
             } header: {
-                Text("Usage history")
+                Text("GitHub Copilot usage history")
             } footer: {
                 SettingsFootnote("Daily totals are kept until you delete them. Hourly detail is kept for 7 days.")
+            }
+            Section {
+                HistoryControls(history: model.history, provider: .claudeCode)
+            } header: {
+                Text("Claude Code usage history")
+            } footer: {
+                SettingsFootnote("Independent opt-in. Deleting usage also deletes reported estimated cost aggregates, not saved session timelines.")
             }
 
             Section {

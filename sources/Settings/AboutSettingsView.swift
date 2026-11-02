@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AboutSettingsView: View {
     @ObservedObject var updates: ReleaseUpdateController
+    var setAutomaticChecks: (Bool) -> Void
     var body: some View {
         Form {
             Section {
@@ -59,7 +60,7 @@ struct AboutSettingsView: View {
                 LabeledContent("Version") {
                     Text("\(AppVersion.short) (\(AppVersion.build))").textSelection(.enabled)
                 }
-                LabeledContent("Updates", value: "Manual")
+                LabeledContent("Updates", value: updates.automaticChecks ? "Daily checks, manual installation" : "Manual")
                 LabeledContent("Requires", value: "macOS 15 or later")
             } header: {
                 Text("Tokenotch")
@@ -67,7 +68,13 @@ struct AboutSettingsView: View {
                 SettingsFootnote("An independent companion, not an official GitHub or Microsoft product. Local observations can be incomplete; Preview features depend on your client version.")
             }
             Section("Updates") {
+                Toggle(isOn: Binding(get: { updates.automaticChecks }, set: setAutomaticChecks)) {
+                    Text("Check for updates daily")
+                    Text("Contacts GitHub while Tokenotch is open. Off until you enable it.")
+                }
                 Text(updates.message).foregroundStyle(.secondary)
+                Text("New releases appear in the menu bar. Update banners follow your Notifications settings, including quiet hours and snooze. Nothing is downloaded or installed automatically.")
+                    .font(.callout).foregroundStyle(.secondary)
                 Button("Check for Updates") { updates.check() }.disabled(updates.checking)
                 if updates.available != nil {
                     Button("Open Official Release") { updates.openRelease() }

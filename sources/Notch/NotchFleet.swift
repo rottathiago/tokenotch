@@ -13,6 +13,7 @@ final class NotchFleet {
         var interaction = NotchInteraction()
         var exposure = NotchInteraction.NoticeExposure()
         var modelsExpanded = false
+        var provider = UsageProvider.copilot
 
         init(source: NotchPanel) { self.source = source }
     }
@@ -68,6 +69,15 @@ final class NotchFleet {
         }.store(in: &cancellables)
         model.attention.objectWillChange.sink { [weak self] in
             self?.scheduleRefresh()
+        }.store(in: &cancellables)
+        model.claude.objectWillChange.sink { [weak self] in
+            self?.scheduleRefresh()
+        }.store(in: &cancellables)
+        model.claude.$enabled.removeDuplicates().sink { [weak self] _ in
+            DispatchQueue.main.async { if let self, self.started { self.rebuild() } }
+        }.store(in: &cancellables)
+        model.history.$knownProviders.removeDuplicates().sink { [weak self] _ in
+            DispatchQueue.main.async { if let self, self.started { self.rebuild() } }
         }.store(in: &cancellables)
         observe(.default, NSApplication.didChangeScreenParametersNotification)
         observe(NSWorkspace.shared.notificationCenter, NSWorkspace.activeSpaceDidChangeNotification)
@@ -136,7 +146,7 @@ final class NotchFleet {
         panels.removeAll()
         panelScreens.removeAll()
         cards.removeAll()
-        guard model.options.showNotch else { return }
+        guard model.options.showNotch, !model.notchProviders.isEmpty else { return }
         let availableScreens = self.screens()
         let screens: [NSScreen]
         if model.options.allDisplays { screens = availableScreens }
@@ -146,7 +156,7 @@ final class NotchFleet {
         }
         let edge = self.edge
         let scale = self.scale
-        let size = NotchLayout.size(edge: edge, scale: scale)
+        let size = NotchLayout.size(edge: edge, scale: scale, providerCount: model.notchProviders.count)
         for screen in screens {
             let offset = model.options.offsets[edge.rawValue] ?? 0
             var frame = NotchGeometry.panelFrame(for: screen, panelSize: size, edge: edge,
@@ -157,8 +167,8 @@ final class NotchFleet {
                                                  alongOffset: notch.width / 2 + size.width / 2 + 8)
             }
             let panel = NotchPanel(contentRect: frame)
-            let host = ShapeHostingView(rootView: LiveNotchBadge(model: model, edge: edge, scale: scale) { [weak self, weak panel] in
-                if let panel { self?.show(from: panel) }
+            let host = ShapeHostingView(rootView: LiveNotchBadge(model: model, edge: edge, scale: scale) { [weak self, weak panel] provider in
+                if let panel { self?.show(from: panel, provider: provider) }
             })
             panel.contentView = host
             setCollapsed(model.options.autoHideNotch, for: panel)
@@ -218,6 +228,7 @@ final class NotchFleet {
         updateVisibility()
         let visible = panels.filter(\.isVisible)
         if !allowSettings {
+            guard model.notchProviders.contains(.copilot) else { return }
             for panel in visible {
                 show(from: panel, pinned: false, minimumDuration: 3, origin: .automatic)
             }
@@ -257,6 +268,10 @@ final class NotchFleet {
             let overCard = contains(pointer, in: card.panel)
             card.panel?.ignoresMouseEvents = !overCard
             let overBridge = card.placement?.hoverBridge.contains(pointer) ?? false
+            if inside, card.panel != nil, !card.interaction.isPinned {
+                let provider = provider(at: pointer, in: panel)
+                if card.provider != provider { show(from: panel, provider: provider, pinned: false, origin: .hover) }
+            }
             switch card.interaction.update(hovered: inside ? index : nil,
                                            overDetail: overCard || overBridge, now: now) {
             case .reveal(let index):
@@ -277,11 +292,35 @@ final class NotchFleet {
         }
     }
 
-    private func show(from panel: NotchPanel, pinned: Bool = true, minimumDuration: TimeInterval = 0,
+    private func provider(at point: CGPoint, in panel: NotchPanel) -> UsageProvider {
+        let providers = model.notchProviders
+        guard providers.count > 1 else { return providers.first ?? .copilot }
+        let coordinate = edge.isVertical ? panel.frame.maxY - point.y : point.x - panel.frame.minX
+        let host = panel.contentView as? ShapeHostingView<LiveNotchBadge>
+        if host?.rootView.isCollapsed == true {
+            let bounds = CGRect(origin: .zero, size: panel.frame.size)
+            let rect = NotchLayout.badgeRect(in: bounds, edge: edge, scale: scale, collapsed: true,
+                                              providerCount: providers.count)
+            let start = edge.isVertical ? rect.minY : rect.minX
+            let length = edge.isVertical ? rect.height : rect.width
+            return providers[min(providers.count - 1, max(0, Int((coordinate - start) / length * CGFloat(providers.count))))]
+        }
+        let first = NotchLayout.ringCenter(in: panel.frame.size, edge: edge, scale: scale)
+        let origin = edge.isVertical ? first.y : first.x
+        let index = Int(((coordinate - origin) / (NotchLayout.cellStride(edge: edge) * scale)).rounded())
+        return providers[min(providers.count - 1, max(0, index))]
+    }
+
+    private func show(from panel: NotchPanel, provider requestedProvider: UsageProvider? = nil,
+                      pinned: Bool = true, minimumDuration: TimeInterval = 0,
                       origin: NotchInteraction.NoticeExposure.Origin = .deliberate) {
         guard panel.isVisible, let card = cards[panel] else { return }
         if origin != .automatic { dismiss(except: card) }
-        let data = NotchPresentation(model: model)
+        let selected = requestedProvider ?? (origin == .automatic ? .copilot : provider(at: pointerLocation(), in: panel))
+        if card.provider != selected, card.panel != nil { dismiss(card) }
+        card.provider = selected
+        if model.history.selectedProvider != selected { model.history.selectedProvider = selected }
+        let data = NotchPresentation(model: model, provider: selected)
         card.exposure.open(origin: origin, initial: Set(data.sessionRows.compactMap { $0.notice?.id }),
                            keepingVisibility: card.panel != nil)
         setCollapsed(false, for: panel)
@@ -327,8 +366,10 @@ final class NotchFleet {
         host.rootView.isCollapsed = collapsed
         let edge = host.rootView.edge
         let scale = host.rootView.scale
+        let providerCount = model.notchProviders.count
         host.hitPath = { bounds in
-            let rect = NotchLayout.badgeRect(in: bounds, edge: edge, scale: scale, collapsed: collapsed)
+            let rect = NotchLayout.badgeRect(in: bounds, edge: edge, scale: scale, collapsed: collapsed,
+                                              providerCount: providerCount)
             return SideNotchShape(edge: edge, curlRadius: NotchLayout.curlRadius * scale,
                                   cornerRadius: NotchLayout.cornerRadius * scale).path(in: rect)
         }
@@ -348,8 +389,9 @@ final class NotchFleet {
 
     private func refreshCard(_ card: CardState) {
         let source = card.source
+        let provider = card.provider
         guard let screen = panelScreens[source] else { return }
-        var data = NotchPresentation(model: model)
+        var data = NotchPresentation(model: model, provider: card.provider)
         if let previousRange = card.host?.rootView.presentation.range, previousRange != data.range {
             card.modelsExpanded = false
         }
@@ -361,13 +403,15 @@ final class NotchFleet {
                                                                    openHistory: {})
             .frame(width: width - 2 * NotchLayout.cardPadding * scale))
         let height = content.fittingSize.height + NotchLayout.cardChrome(scale: scale)
-        let localRing = NotchLayout.ringCenter(in: source.frame.size, edge: edge, scale: scale)
+        let index = model.notchProviders.firstIndex(of: card.provider) ?? 0
+        let localRing = NotchLayout.ringCenter(in: source.frame.size, edge: edge, scale: scale, index: index)
         let center = CGPoint(x: source.frame.minX + localRing.x, y: source.frame.maxY - localRing.y)
         let placement = NotchCardPlacement(notch: source.frame, ringCenter: center, edge: edge,
                                            visibleFrame: screen.visibleFrame, contentHeight: height,
                                            scale: scale)
         let root = CopilotSummaryView(presentation: data, placement: placement, openClient: model.openClient,
                                      openUsage: { [weak self] in
+            self?.model.history.selectedProvider = provider
             self?.showUsage(sessions: false)
         }, openSettings: { [weak self] in
             guard let self else { return }
@@ -376,6 +420,7 @@ final class NotchFleet {
         }, openHistory: { [weak self] in
             guard let self else { return }
             self.dismiss()
+            self.model.history.selectedProvider = provider
             self.model.history.navigate(range: data.range, anchor: data.anchor ?? data.now)
             self.model.settingsTab = .history
             self.openSettings()
@@ -390,6 +435,7 @@ final class NotchFleet {
             self.model.history.selectedSource = source
         }, openModel: { [weak self] selected in
             guard let self else { return }
+            self.model.history.selectedProvider = provider
             if data.usageSource == .saved {
                 self.model.history.navigate(range: data.range, anchor: data.anchor ?? data.now, model: selected)
                 self.showSettings(tab: .history)
@@ -419,6 +465,7 @@ final class NotchFleet {
         }, openConnections: { [weak self] in
             self?.showSettings(tab: .connections)
         }, openActivity: { [weak self] in
+            self?.model.history.selectedProvider = provider
             self?.showUsage(sessions: true)
         }, toggleModels: { [weak self, weak card] in
             guard let self, let card, data.canExpandModels else { return }
@@ -427,6 +474,7 @@ final class NotchFleet {
         }, openSession: { [weak self] target, notice in
             guard let self else { return }
             if let notice { self.model.attention.markViewed([notice]) }
+            self.model.history.selectedProvider = provider
             self.model.liveUsageDetail = nil
             self.model.selectedSession = target
             self.model.usageNavigation = UUID()
@@ -437,7 +485,7 @@ final class NotchFleet {
         }, noticeVisibility: { [weak card, generation = card.exposure.generation] id, visible in
             card?.exposure.visibility(id, visible: visible, generation: generation)
         }, openPricing: { [weak self] in
-            self?.model.openPricing()
+            self?.model.openPricing(provider: provider)
         })
         if let host = card.host, let panel = card.panel {
             host.rootView = root
@@ -503,9 +551,9 @@ private struct LiveNotchBadge: View {
     let edge: NotchEdge
     let scale: CGFloat
     var isCollapsed = false
-    let open: () -> Void
+    let open: (UsageProvider) -> Void
 
-    init(model: TokenotchModel, edge: NotchEdge, scale: CGFloat, open: @escaping () -> Void) {
+    init(model: TokenotchModel, edge: NotchEdge, scale: CGFloat, open: @escaping (UsageProvider) -> Void) {
         self.model = model
         attention = model.attention
         self.edge = edge
@@ -514,35 +562,52 @@ private struct LiveNotchBadge: View {
     }
 
     var body: some View {
-        let presentation = NotchPresentation(model: model)
-        NotchBadge(reading: CopilotRingReading(quota: model.primaryQuota, isStale: model.accountStale,
+        let presentation = NotchPresentation(model: model, provider: .copilot)
+        ProviderNotchBadge(providers: model.notchProviders,
+            reading: CopilotRingReading(quota: model.primaryQuota, isStale: model.accountStale,
             isWorking: !presentation.working.isEmpty, needsAttention: presentation.needsAttention,
             sessionSignal: presentation.sessionSignal, sessionSummary: presentation.activityTitle),
-            edge: edge, scale: scale, isCollapsed: isCollapsed, open: open)
+            edge: edge, scale: scale, isCollapsed: isCollapsed, open: open,
+            claudeStatusLine: model.claude.statusLineState.latest, now: model.clock)
     }
 }
 
 extension NotchPresentation {
-    @MainActor init(model: TokenotchModel, range requestedRange: HistoryRange? = nil) {
+    @MainActor init(model: TokenotchModel, range requestedRange: HistoryRange? = nil,
+                    provider requestedProvider: UsageProvider? = nil) {
+        let provider = requestedProvider ?? model.history.selectedSource?.provider ?? model.history.selectedProvider
+        let source = model.history.selectedSource.flatMap { provider == nil || $0.provider == provider ? $0 : nil }
+        var live = model.liveLedger(provider: provider, source: source)
         self.init(account: model.accountSnapshot, accountStatus: model.accountStatus,
-                  accountStale: model.accountStale, tokens: model.todayTokenTotals,
+                  accountStale: model.accountStale, tokens: live.today(now: model.clock),
                   tokensPartial: model.tokenSampleLimitReached, sessions: model.sessions,
                   now: model.clock)
+        self.provider = provider
+        claudeStatusLine = model.claude.statusLineState.latest
+        claudeStatusLineEnabled = model.claude.statusLineEnabled
+        metricSessions = model.liveSessionMetrics(provider: provider, source: source)
+        openClaudeSessions = model.claude.sessionState.openSessions
+        if provider == .claudeCode {
+            account = nil
+            sessions = []
+        }
         historyError = model.history.error
-        models = model.todayModelTokenTotals
-        insights = model.insights
+        metricsWarning = provider == .claudeCode ? model.claude.error : nil
+        models = live.todayByModel(now: model.clock)
+        insights = provider == .claudeCode ? [] : model.insights
         range = requestedRange ?? model.history.notchRange
-        savedUsage = range == .today ? model.history.todayUsage : model.history.notchUsage
-        savedTimeline = range == model.history.notchRange ? model.history.notchTimeline : nil
-        liveTimeline = model.todayTimeline
+        let matching = provider == model.history.selectedProvider || model.history.selectedSource?.provider == provider
+        savedUsage = matching ? (range == .today ? model.history.todayUsage : model.history.notchUsage) : nil
+        savedTimeline = matching && range == model.history.notchRange ? model.history.notchTimeline : nil
+        liveTimeline = live.hourlyTimeline(now: model.clock)
         timeFormat = model.options.timeFormat
-        metricSource = model.history.selectedSource
-        historyLoading = model.history.notchLoading && !(requestedRange == .today && savedUsage != nil)
-        historyRecording = model.history.recording
+        metricSource = source
+        historyLoading = matching && model.history.notchLoading && !(requestedRange == .today && savedUsage != nil)
+        historyRecording = provider.map { model.history.recordingProviders.contains($0) } ?? !model.history.recordingProviders.isEmpty
         anchor = model.history.notchAnchor
-        healthIncident = model.healthIncident
+        healthIncident = provider != .claudeCode && model.healthIncident
         healthObservedAt = model.healthObservedAt
-        sessionNotices = model.attention.state.notices
+        sessionNotices = provider == .claudeCode ? [] : model.attention.state.notices
         heldNoticeIDs = model.attention.heldNoticeIDs
         noticeSessionIDs = Dictionary(uniqueKeysWithValues: model.sessions.map {
             ($0.id, model.attention.state.sessionID(source: $0.source, hash: $0.key))

@@ -203,6 +203,9 @@ On the way:
 
 ⭐ **Star** the repo and choose **Watch > Custom > Releases** to hear about each
 new version. You can also use **Check for Updates** in the app at any time.
+On macOS 1.1.0 or later, enable daily checks in **Settings > About** for future
+update alerts while the app is running. Downloads and installation stay manual;
+version 1.0.0 requires one manual check to discover this upgrade.
 
 ## Contributing
 

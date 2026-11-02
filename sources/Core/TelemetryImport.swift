@@ -43,7 +43,7 @@ public enum TelemetryImport {
     public static func preview(_ url: URL, source: UsageSource, now: Date = Date()) throws -> TelemetryImportPreview {
         do {
             try Task.checkCancellation()
-            guard source != .cli else { throw TelemetryError.unsupported }
+            guard source.provider == .copilot, source != .cli else { throw TelemetryError.unsupported }
             let selected = try selectedURL(url)
             let before = try snapshot(selected)
             var collector = Collector(source: source, now: now)

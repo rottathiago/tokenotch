@@ -29,11 +29,11 @@ public final class SessionTimelineStore {
         do {
             sqlite3_busy_timeout(database, 1000)
             let version = try integer("PRAGMA user_version")
-            guard version <= 3 else { throw TimelineError.schema }
+            guard version <= 4 else { throw TimelineError.schema }
             guard version >= 0 else { throw TimelineError.invalid }
             try execute("PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL")
-            if version == 0 {
-                try transaction {
+            try transaction {
+                if version == 0 {
                     try execute("""
                     CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
                     CREATE TABLE sessions(id TEXT PRIMARY KEY, source TEXT NOT NULL, truncated INTEGER NOT NULL DEFAULT 0);
@@ -47,20 +47,51 @@ public final class SessionTimelineStore {
                     try set("key", key.withUnsafeBytes { Data($0).base64EncodedString() })
                     try set("active", "0")
                 }
+                if version < 2 {
+                    // Legacy JSON stays untouched: absence of an accounting marker is meaningful.
+                    try execute("PRAGMA user_version=2")
+                }
+                if version < 3 { try execute("PRAGMA user_version=3") }
+                if version < 4 {
+                    try execute("""
+                    CREATE TABLE sessions_v4 (
+                      id TEXT PRIMARY KEY, source TEXT NOT NULL,
+                      provider TEXT NOT NULL CHECK(provider IN ('copilot','claudeCode')),
+                      truncated INTEGER NOT NULL DEFAULT 0 CHECK(truncated IN (0,1)),
+                      CHECK((provider='copilot' AND source IN ('cli','vscode')) OR
+                        (provider='claudeCode' AND source IN ('claudeCLI','claudeDesktop'))));
+                    INSERT INTO sessions_v4 SELECT id,source,'copilot',truncated FROM sessions;
+                    DROP TABLE sessions;
+                    ALTER TABLE sessions_v4 RENAME TO sessions;
+                    CREATE TABLE events_v4 (
+                      id TEXT PRIMARY KEY, session TEXT NOT NULL, time REAL NOT NULL, payload TEXT NOT NULL,
+                      client TEXT NOT NULL CHECK(client IN ('cli','vscode','claudeCLI','claudeDesktop')));
+                    INSERT INTO events_v4 SELECT e.id,e.session,e.time,e.payload,s.source
+                      FROM events e JOIN sessions s ON s.id=e.session;
+                    """)
+                    guard try integer("SELECT count(*) FROM events_v4") == integer("SELECT count(*) FROM events") else {
+                        throw TimelineError.invalid
+                    }
+                    try execute("""
+                    DROP TABLE events;
+                    ALTER TABLE events_v4 RENAME TO events;
+                    CREATE INDEX events_session_time ON events(session,time,id);
+                    CREATE INDEX events_time ON events(time,id);
+                    CREATE TABLE durable_receipts(id TEXT PRIMARY KEY NOT NULL CHECK(length(id)=64));
+                    PRAGMA user_version=4;
+                    """)
+                }
+                guard let encoded = try get("key"), let data = Data(base64Encoded: encoded), data.count == 32 else {
+                    throw TimelineError.invalid
+                }
+                key = SymmetricKey(data: data)
+                if try get("active") == "1" { try set("interrupted", "1") }
+                try set("active", "0")
+                if try get("active:claudeCode") == "1" { try set("interrupted:claudeCode", "1") }
+                try set("active:claudeCode", "0")
+                try pruneReceipts(now: now)
+                try Self.validateFiles(directory)
             }
-            if version < 2 {
-                // Legacy JSON stays untouched: absence of an accounting marker is meaningful.
-                try transaction { try execute("PRAGMA user_version=2") }
-            }
-            if version < 3 { try transaction { try execute("PRAGMA user_version=3") } }
-            guard let encoded = try get("key"), let data = Data(base64Encoded: encoded), data.count == 32 else {
-                throw TimelineError.invalid
-            }
-            key = SymmetricKey(data: data)
-            if try get("active") == "1" { try set("interrupted", "1") }
-            try set("active", "0")
-            try pruneReceipts(now: now)
-            try Self.validateFiles(directory)
         } catch {
             sqlite3_close(database)
             database = nil
@@ -139,7 +170,8 @@ public final class SessionTimelineStore {
             .map { String(format: "%02x", $0) }.joined()
     }
     public func sessionID(source: Client, hash: String) -> String {
-        pseudonym("session:\(source.rawValue):\(hash)")
+        if source.provider == .claudeCode { return pseudonym("session:claudeCode:\(hash)") }
+        return pseudonym("session:\(source.rawValue):\(hash)")
     }
 
     private func pruneReceipts(now: Date) throws {
@@ -153,11 +185,20 @@ public final class SessionTimelineStore {
             for event in events {
                 try event.validate(now: event.timestamp)
                 guard !event.kind.isActivitySnapshot, !event.kind.isAttention, event.kind != .contextInvalidated else { continue }
+                guard event.provider != .claudeCode || event.metricSessionReported == true else { continue }
                 guard event.timestamp >= now.addingTimeInterval(-Double(retention.rawValue) * 86_400) else { continue }
                 let session = sessionID(source: event.source, hash: event.session)
                 let fallback = "\(event.id):\(event.context?.currentTokens.description ?? ""):\(event.context?.tokenLimit.description ?? "")"
-                let id = pseudonym("event:\(event.source.rawValue):\(event.session):\(event.kind.rawValue):\(event.tokens?.callID ?? event.metricID ?? fallback)")
-                try run("INSERT OR IGNORE INTO receipts VALUES (?,?)", [id, String(now.timeIntervalSince1970)])
+                let id = event.provider == .claudeCode
+                    ? pseudonym("event:claudeCode:usage:\(event.tokens!.callID)")
+                    : pseudonym("event:\(event.source.rawValue):\(event.session):\(event.kind.rawValue):\(event.tokens?.callID ?? event.metricID ?? fallback)")
+                if event.provider == .claudeCode {
+                    if try integer("SELECT count(*) FROM durable_receipts WHERE id=?", [id]) == 0,
+                       try integer("SELECT count(*) FROM durable_receipts") >= 1_000_000 { throw TimelineError.capacity }
+                    try run("INSERT OR IGNORE INTO durable_receipts VALUES (?)", [id])
+                } else {
+                    try run("INSERT OR IGNORE INTO receipts VALUES (?,?)", [id, String(now.timeIntervalSince1970)])
+                }
                 guard sqlite3_changes(database) != 0 else { continue }
                 let value = TimelineEvent(id: id, session: session, source: event.source,
                     timestamp: event.timestamp, kind: event.kind, model: event.tokens?.model,
@@ -167,21 +208,34 @@ public final class SessionTimelineStore {
                     compactionSuccess: event.compaction?.success, before: event.compaction?.before, after: event.compaction?.after,
                     cacheInputReported: event.tokens?.cacheInputReported,
                     cacheWrite: event.tokens?.cacheWrite, cacheWriteReported: event.tokens?.cacheWriteReported,
-                    accountingVersion: event.tokens?.accountingVersion, metricSource: event.metricSource)
+                    accountingVersion: event.tokens?.accountingVersion, metricSource: event.metricSource,
+                    estimatedCostMicros: event.tokens?.estimatedCostMicros)
                 try value.validate()
                 let payload = String(decoding: try JSONEncoder().encode(value), as: UTF8.self)
-                try run("INSERT OR IGNORE INTO sessions(id,source) VALUES (?,?)", [session, event.source.rawValue])
-                try run("INSERT OR IGNORE INTO events VALUES (?,?,?,?)",
-                        [id, session, String(event.timestamp.timeIntervalSince1970), payload])
+                try run("INSERT OR IGNORE INTO sessions(id,source,provider) VALUES (?,?,?)",
+                        [session, event.source.rawValue, event.provider.rawValue])
+                try run("INSERT OR IGNORE INTO events(id,session,time,payload,client) VALUES (?,?,?,?,?)",
+                        [id, session, String(event.timestamp.timeIntervalSince1970), payload, event.source.rawValue])
             }
             try prune(retention: retention, now: now)
         }
     }
 
     private func discard(_ selection: String, values: [String] = []) throws {
+        let owners = try statement("""
+            SELECT DISTINCT s.provider FROM events e JOIN sessions s ON e.session=s.id WHERE e.id IN (\(selection))
+            """, values)
+        defer { sqlite3_finalize(owners) }
+        while true {
+            let code = sqlite3_step(owners)
+            if code == SQLITE_DONE { break }
+            guard code == SQLITE_ROW, let provider = try UsageProvider(rawValue: text(owners, 0)) else {
+                throw TimelineError.invalid
+            }
+            try set(metadataKey("pruned", provider: provider), "1")
+        }
         try run("UPDATE sessions SET truncated=1 WHERE id IN (SELECT session FROM events WHERE id IN (\(selection)))", values)
         try run("DELETE FROM events WHERE id IN (\(selection))", values)
-        if sqlite3_changes(database) > 0 { try set("pruned", "1") }
     }
     private func prune(retention: TimelineRetention, now: Date) throws {
         try discard("SELECT id FROM events WHERE time<?",
@@ -201,40 +255,59 @@ public final class SessionTimelineStore {
     public func maintain(retention: TimelineRetention, now: Date = Date()) throws {
         try transaction { try prune(retention: retention, now: now) }
     }
-    public func recording(_ active: Bool, interrupted: Bool = false, now: Date = Date()) throws {
+    private func metadataKey(_ name: String, provider: UsageProvider) -> String {
+        provider == .copilot ? name : "\(name):\(provider.rawValue)"
+    }
+
+    public func recording(_ active: Bool, interrupted: Bool = false, now: Date = Date(),
+                          provider: UsageProvider = .copilot) throws {
         try transaction {
-            if interrupted { try set("interrupted", "1") }
-            try set("active", active ? "1" : "0")
-            try set("heartbeat", String(now.timeIntervalSince1970))
+            if interrupted { try set(metadataKey("interrupted", provider: provider), "1") }
+            try set(metadataKey("active", provider: provider), active ? "1" : "0")
+            try set(metadataKey("heartbeat", provider: provider), String(now.timeIntervalSince1970))
         }
     }
-    public func heartbeat(now: Date) throws {
-        let last = try get("heartbeat").flatMap(Double.init)
+    public func heartbeat(now: Date, provider: UsageProvider = .copilot) throws {
+        let last = try get(metadataKey("heartbeat", provider: provider)).flatMap(Double.init)
         let gap = last.map { now.timeIntervalSince1970 - $0 > 65 || now.timeIntervalSince1970 < $0 } ?? false
-        try recording(true, interrupted: gap, now: now)
+        try recording(true, interrupted: gap, now: now, provider: provider)
     }
-    public func status() throws -> TimelineStatus {
-        try TimelineStatus(sessionCount: Int(integer("SELECT count(*) FROM sessions")),
-            eventCount: Int(integer("SELECT count(*) FROM events")),
-            pruned: get("pruned") == "1", interrupted: get("interrupted") == "1")
+    public func status(provider: UsageProvider? = nil) throws -> TimelineStatus {
+        let sources = provider.map { [$0] } ?? UsageProvider.allCases
+        let pruned = try sources.contains { try get(metadataKey("pruned", provider: $0)) == "1" }
+        let interrupted = try sources.contains { try get(metadataKey("interrupted", provider: $0)) == "1" }
+        let filter = provider == nil ? "" : " WHERE provider=?"
+        let values = provider.map { [$0.rawValue] } ?? []
+        return try TimelineStatus(sessionCount: Int(integer("SELECT count(*) FROM sessions\(filter)", values)),
+            eventCount: Int(integer("SELECT count(*) FROM events WHERE session IN (SELECT id FROM sessions\(filter))", values)),
+            pruned: pruned, interrupted: interrupted)
     }
-    public func sessions(offset: Int = 0) throws -> [TimelineSession] {
+    public func sessions(offset: Int = 0, provider: UsageProvider? = nil, client: Client? = nil) throws -> [TimelineSession] {
         guard offset >= 0, offset <= 1000 else { throw TimelineError.invalid }
+        guard provider == nil || client == nil || provider == client?.provider else { throw TimelineError.invalid }
         let s = try statement("""
-            SELECT s.id,s.source,min(e.time),max(e.time),count(*),s.truncated
-            FROM sessions s JOIN events e ON e.session=s.id GROUP BY s.id
+            SELECT s.id,s.source,min(e.time),max(e.time),count(*),s.truncated,group_concat(DISTINCT e.client)
+            FROM sessions s JOIN events e ON e.session=s.id
+            WHERE 1=1 \(provider == nil ? "" : "AND s.provider=?") \(client == nil ? "" : "AND e.client=?") GROUP BY s.id
             ORDER BY max(e.time) DESC,s.id DESC LIMIT 100 OFFSET ?
-            """, [String(offset)])
+            """, (provider.map { [$0.rawValue] } ?? []) + (client.map { [$0.rawValue] } ?? []) + [String(offset)])
         defer { sqlite3_finalize(s) }
         var result: [TimelineSession] = []
         while true {
             let code = sqlite3_step(s)
             if code == SQLITE_DONE { break }
             guard code == SQLITE_ROW, let source = try Client(rawValue: text(s, 1)) else { throw TimelineError.invalid }
+            let clients = try text(s, 6).split(separator: ",").map { raw -> Client in
+                guard let client = Client(rawValue: String(raw)), client.provider == source.provider else {
+                    throw TimelineError.invalid
+                }
+                return client
+            }
             result.append(try TimelineSession(id: text(s, 0), source: source,
                 first: Date(timeIntervalSince1970: sqlite3_column_double(s, 2)),
                 last: Date(timeIntervalSince1970: sqlite3_column_double(s, 3)),
-                count: Int(sqlite3_column_int64(s, 4)), truncated: sqlite3_column_int(s, 5) != 0))
+                count: Int(sqlite3_column_int64(s, 4)), truncated: sqlite3_column_int(s, 5) != 0,
+                clients: Set(clients)))
         }
         return result
     }
@@ -257,6 +330,18 @@ public final class SessionTimelineStore {
             result.append(value)
         }
         return TimelinePage(events: Array(result.prefix(100)), hasMore: result.count > 100)
+    }
+
+    public func delete(provider: UsageProvider) throws {
+        try transaction {
+            try run("DELETE FROM events WHERE session IN (SELECT id FROM sessions WHERE provider=?)", [provider.rawValue])
+            try run("DELETE FROM sessions WHERE provider=?", [provider.rawValue])
+            if provider == .claudeCode { try execute("DELETE FROM durable_receipts") }
+            else { try execute("DELETE FROM receipts") }
+            for key in ["active", "heartbeat", "interrupted", "pruned"] {
+                try run("DELETE FROM metadata WHERE key=?", [metadataKey(key, provider: provider)])
+            }
+        }
     }
 
     public func delete() throws {

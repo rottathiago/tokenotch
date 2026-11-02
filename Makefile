@@ -1,4 +1,4 @@
-.PHONY: build universal preflight metadata test test-ci smoke smoke-hook smoke-contracts smoke-telemetry vscode-companion smoke-history smoke-timeline smoke-notch gen test-xcode run clean package release docs-check docs-links-external
+.PHONY: build universal preflight metadata test test-ci smoke smoke-hook smoke-contracts smoke-telemetry claude-acceptance vscode-companion smoke-history smoke-timeline smoke-notch gen test-xcode run clean package release docs-check docs-links-external
 
 docs-check:
 	node scripts/docs/check.mjs
@@ -31,7 +31,7 @@ test test-ci:
 	python3 scripts/test-preflight.py
 	python3 scripts/test-project.py
 
-smoke: smoke-hook
+smoke: smoke-hook smoke-telemetry smoke-contracts
 	mkdir -p build
 	swiftc -swift-version 5 -parse-as-library sources/Core/*.swift \
 		sources/Notch/{NotchGeometry,NotchEdge,SideNotchShape,NotchLayout,FullScreenDetector}.swift \
@@ -53,7 +53,7 @@ smoke-hook:
 smoke-telemetry:
 	mkdir -p build
 	swiftc -swift-version 5 -parse-as-library sources/Core/*.swift \
-		tests/TelemetryChecks.swift tests/SourceHistoryChecks.swift tests/TelemetryImportChecks.swift \
+		tests/TelemetryChecks.swift tests/SourceHistoryChecks.swift tests/TelemetryImportChecks.swift tests/ClaudeCodeChecks.swift \
 		scripts/telemetry-smoke.swift -lsqlite3 -o build/tokenotch-telemetry-smoke
 	build/tokenotch-telemetry-smoke
 
@@ -63,6 +63,17 @@ smoke-contracts:
 		tests/WindowsContractChecks.swift scripts/windows-contract-smoke.swift \
 		-lsqlite3 -o build/tokenotch-contract-smoke
 	build/tokenotch-contract-smoke
+
+claude-acceptance:
+	mkdir -p build/claude-acceptance-native
+	xcrun swiftc -swift-version 5 -parse-as-library -emit-module -emit-library -static \
+		-module-name TokenotchCore sources/Core/*.swift \
+		-emit-module-path build/claude-acceptance-native/TokenotchCore.swiftmodule \
+		-o build/claude-acceptance-native/libTokenotchCore.a
+	xcrun swiftc -swift-version 5 -parse-as-library -I build/claude-acceptance-native \
+		-L build/claude-acceptance-native -lTokenotchCore -lsqlite3 \
+		scripts/claude-acceptance.swift -o build/claude-acceptance-native/check
+	build/claude-acceptance-native/check $(CLAUDE_ACCEPTANCE_ARGS)
 
 vscode-companion:
 	python3 scripts/release-config.py
@@ -87,10 +98,10 @@ smoke-timeline: build
 smoke-notch: build
 	swiftc -swift-version 5 -D NOTCH_SMOKE -parse-as-library \
 		-I build/native -L build/native -lTokenotchCore -lsqlite3 \
-		sources/App/TokenotchModel.swift sources/App/OnboardingState.swift sources/App/ReleaseUpdateController.swift sources/App/VSCodeIntegrationController.swift sources/App/HistoryController.swift sources/App/SessionTimelineController.swift sources/App/SessionAttentionController.swift sources/Notch/*.swift sources/DesignSystem/*.swift \
+		sources/App/TokenotchModel.swift sources/App/OnboardingState.swift sources/App/ReleaseUpdateController.swift sources/App/VSCodeIntegrationController.swift sources/App/ClaudeCodeIntegrationController.swift sources/App/ClaudeAccountController.swift sources/App/HistoryController.swift sources/App/SessionTimelineController.swift sources/App/SessionAttentionController.swift sources/Notch/*.swift sources/DesignSystem/*.swift \
 		sources/Settings/*.swift sources/L10n.swift \
 		tests/NotchTestSupport.swift tests/ContextNotchChecks.swift tests/NotificationDeliveryChecks.swift tests/UsageTimelineNotchChecks.swift tests/UsageReportingChecks.swift tests/SessionAttentionChecks.swift tests/ConnectionsChecks.swift \
-		tests/TelemetryChecks.swift tests/VSCodeIntegrationChecks.swift tests/ProductionAppChecks.swift tests/OnboardingChecks.swift scripts/notch-smoke.swift -o build/tokenotch-notch-smoke
+		tests/TelemetryChecks.swift tests/SourceHistoryChecks.swift tests/VSCodeIntegrationChecks.swift tests/ClaudeCodeChecks.swift tests/ClaudeCodeIntegrationChecks.swift tests/ProductionAppChecks.swift tests/OnboardingChecks.swift scripts/notch-smoke.swift -o build/tokenotch-notch-smoke
 	cp sources/Resources/Brand/*.png build/
 	build/tokenotch-notch-smoke $(NOTCH_SMOKE_ARGS)
 

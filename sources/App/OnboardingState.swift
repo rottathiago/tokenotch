@@ -24,6 +24,7 @@ enum OnboardingStep: String, CaseIterable {
 }
 
 struct OnboardingProgress {
+    static let supportedClients = Client.activeCases
     var step: OnboardingStep
     var clients: Set<Client>
     var activeClient: Client?
@@ -40,7 +41,9 @@ struct OnboardingProgress {
             }
         }
         clients = Set((defaults.stringArray(forKey: "onboardingClients.v2") ?? []).compactMap(Client.init(rawValue:)))
+        clients.formIntersection(Self.supportedClients)
         activeClient = defaults.string(forKey: "onboardingActiveClient.v2").flatMap(Client.init(rawValue:))
+        if let selected = activeClient, !Self.supportedClients.contains(selected) { activeClient = nil }
         if let activeClient { clients.insert(activeClient) }
     }
 

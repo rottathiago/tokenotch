@@ -11,6 +11,37 @@ enum NotchSmoke {
             URL(fileURLWithPath: $0, isDirectory: true)
         }
         if let directory { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
+        if CommandLine.arguments.contains("--claude-focus") {
+            try ClaudeCodeIntegrationChecks.keyboardFocus()
+            print("PASS: native provider-card keyboard focus.")
+            return
+        }
+        if CommandLine.arguments.contains("--request-card") {
+            try SessionAttentionChecks.requestCard()
+            print("PASS: isolated request-card visibility and dismissal dwell.")
+            return
+        }
+        if CommandLine.arguments.contains("--claude") {
+            var result: Result<Void, Error>?
+            let check = Task { @MainActor in
+                do {
+                    try await ClaudeCodeIntegrationChecks.permissionApproval(directory: directory)
+                    try await ClaudeCodeIntegrationChecks.collection()
+                    try await ClaudeCodeIntegrationChecks.sessionClosure()
+                    try await ClaudeCodeIntegrationChecks.costAndModelUpdates()
+                    try await ClaudeCodeIntegrationChecks.account()
+                    result = .success(())
+                }
+                catch { result = .failure(error) }
+            }
+            defer { check.cancel() }
+            try NotchChecks.waitUntil("Claude application integration checks did not finish", timeout: 45) { result != nil }
+            try result!.get()
+            try ClaudeCodeIntegrationChecks.presentation(directory: directory)
+            try ClaudeCodeIntegrationChecks.interactions()
+            print("PASS: CLI-only Claude setup, official account login/status, independent receivers, routing, replay, archives, restart, removal and provider cells.")
+            return
+        }
         if CommandLine.arguments.contains("--ui-timing") {
             try NotchChecks.waits()
             try NotchChecks.historyRender(directory: directory)
@@ -20,6 +51,7 @@ enum NotchSmoke {
         }
         try UsageReportingChecks.savedAndLive(directory: directory)
         try UsageReportingChecks.liveOnly()
+        try UsageReportingChecks.providerArchiveIsolation()
         print("PASS: Settings/notch Today reconciliation, persisted cache categories, restart, source filters, reporting day, live cap, pause, errors and deletion.")
         if CommandLine.arguments.contains("--usage") { return }
         if CommandLine.arguments.contains("--context") {
@@ -38,6 +70,7 @@ enum NotchSmoke {
         try ConnectionsChecks.readiness()
         try ConnectionsChecks.setup()
         try ConnectionsChecks.render(directory: directory)
+        try ConnectionsChecks.notchVisibility()
         try ConnectionsChecks.configurationStates(directory: directory)
         print("PASS: connection readiness, consent, recovery and Settings rendering.")
         if CommandLine.arguments.contains("--onboarding") { return }

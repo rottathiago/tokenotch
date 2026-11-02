@@ -80,6 +80,56 @@ enum TimelineLifecycleChecks {
         try HistoryChecks.require(overloaded.error == TimelineError.queueFull.rawValue && !overloaded.recording,
                                   "257th admission failed silently")
         overloaded.stop()
+        try await providerRecording()
+    }
+    static func providerRecording() async throws {
+        let root = HistoryChecks.temporaryRoot()
+        let domain = "tokenotch-provider-timeline-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: domain)!
+        defer {
+            defaults.removePersistentDomain(forName: domain)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let controller = SessionTimelineController(defaults: defaults, root: root)
+        controller.start(clients: [.cli])
+        controller.setEnabled(true)
+        try await HistoryLifecycleChecks.wait { controller.recording || controller.error != nil }
+        let first = Date()
+        controller.observe(TimelineChecks.event(100, date: first))
+        controller.setAvailable([.cli, .claudeCLI])
+        controller.setEnabled(true, provider: .claudeCode)
+        controller.observe(TimelineChecks.event(101, date: first))
+        try await HistoryLifecycleChecks.wait { controller.recordingProviders == [.copilot, .claudeCode] }
+        func claude(_ id: String, at date: Date) -> ActivityEvent {
+            ActivityEvent(source: .claudeCLI, session: ActivityEvent.digest("claude-synthetic"),
+                kind: .usage, timestamp: date,
+                tokens: TokenUsage(callID: ActivityEvent.digest(id), input: 1, output: 2,
+                                   cacheInputReported: false, cacheWriteReported: false),
+                metricSource: .claudeCLI, metricSessionReported: true)
+        }
+        controller.observe(claude("pre-consent", at: first))
+        controller.observe(claude("consented", at: Date()))
+        let copilot = try await controller.readStatus(provider: .copilot)
+        let claudeStatus = try await controller.readStatus(provider: .claudeCode)
+        try HistoryChecks.require(copilot?.eventCount == 2 && copilot?.interrupted == false &&
+                                 claudeStatus?.eventCount == 1 && claudeStatus?.interrupted == false,
+                                 "Enabling Claude reset a retained timeline window or marked Copilot interrupted")
+        let pause = Date()
+        controller.setEnabled(false, provider: .claudeCode)
+        controller.observe(TimelineChecks.event(102, date: pause))
+        controller.observe(claude("paused", at: Date()))
+        let retained = try await controller.readStatus(provider: .copilot)
+        let paused = try await controller.readStatus(provider: .claudeCode)
+        try HistoryChecks.require(retained?.eventCount == 3 && retained?.interrupted == false &&
+                                 paused?.eventCount == 1 && paused?.interrupted == true && controller.recording,
+                                 "Claude timeline pause affected Copilot or retained a paused observation")
+        controller.setEnabled(true, provider: .claudeCode)
+        try await HistoryLifecycleChecks.wait { controller.recordingProviders.contains(.claudeCode) }
+        controller.observe(claude("pause-backfill", at: pause))
+        controller.observe(claude("resumed", at: Date()))
+        let resumed = try await controller.readStatus(provider: .claudeCode)
+        try HistoryChecks.require(resumed?.eventCount == 2, "Timeline resume backfilled a paused observation")
+        controller.stop()
     }
     private static func requireSession(_ controller: SessionTimelineController) throws -> TimelineSession {
         guard let session = controller.sessions.first(where: { $0.source == .cli }) else {

@@ -376,6 +376,17 @@ enum CacheInputChecks {
         let result = sqlite3_exec(db, """
             UPDATE events SET payload=json_set(
               json_remove(payload,'$.accountingVersion','$.cacheWrite','$.cacheWriteReported'),'$.input',1200);
+            CREATE TABLE sessions_v1(id TEXT PRIMARY KEY,source TEXT NOT NULL,truncated INTEGER NOT NULL DEFAULT 0);
+            INSERT INTO sessions_v1 SELECT id,source,truncated FROM sessions;
+            DROP TABLE sessions;
+            ALTER TABLE sessions_v1 RENAME TO sessions;
+            CREATE TABLE events_v1(id TEXT PRIMARY KEY,session TEXT NOT NULL,time REAL NOT NULL,payload TEXT NOT NULL);
+            INSERT INTO events_v1 SELECT id,session,time,payload FROM events;
+            DROP TABLE events;
+            ALTER TABLE events_v1 RENAME TO events;
+            CREATE INDEX events_session_time ON events(session,time,id);
+            CREATE INDEX events_time ON events(time,id);
+            DROP TABLE durable_receipts;
             PRAGMA user_version=1;
             """, nil, nil, nil)
         sqlite3_close(db)
